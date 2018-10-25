@@ -1,26 +1,48 @@
 // # DB API
 // API for DB operations
-var _                = require('lodash'),
-    Promise          = require('bluebird'),
-    dataExport       = require('../data/export'),
-    importer         = require('../data/importer'),
-    models           = require('../models'),
-    errors           = require('../errors'),
-    utils            = require('./utils'),
-    pipeline         = require('../utils/pipeline'),
+const Promise = require('bluebird'),
+    _ = require('lodash'),
+    pipeline = require('../lib/promise/pipeline'),
+    localUtils = require('./utils'),
+    exporter = require('../data/exporter'),
+    importer = require('../data/importer'),
+    backupDatabase = require('../data/db/backup'),
+    models = require('../models'),
+    common = require('../lib/common'),
+    docName = 'db';
 
-    api              = {},
-    docName      = 'db',
-    db;
-
-api.settings         = require('./settings');
+let db;
 
 /**
  * ## DB API Methods
  *
- * **See:** [API Methods](index.js.html#api%20methods)
+ * **See:** [API Methods](constants.js.html#api%20methods)
  */
 db = {
+    /**
+     * ### Archive Content
+     * Generate the JSON to export
+     *
+     * @public
+     * @returns {Promise} Ghost Export JSON format
+     */
+    backupContent: function (options) {
+        let tasks;
+
+        options = options || {};
+
+        function jsonResponse(filename) {
+            return {db: [{filename: filename}]};
+        }
+
+        tasks = [
+            localUtils.convertOptions(exporter.EXCLUDED_TABLES, null, {forModel: false}),
+            backupDatabase,
+            jsonResponse
+        ];
+
+        return pipeline(tasks, options);
+    },
     /**
      * ### Export Content
      * Generate the JSON to export
@@ -29,22 +51,25 @@ db = {
      * @param {{context}} options
      * @returns {Promise} Ghost Export JSON format
      */
-    exportContent: function (options) {
-        var tasks = [];
+    exportContent: function exportContent(options) {
+        let tasks;
 
         options = options || {};
 
         // Export data, otherwise send error 500
-        function exportContent() {
-            return dataExport().then(function (exportedData) {
-                return {db: [exportedData]};
-            }).catch(function (error) {
-                return Promise.reject(new errors.InternalServerError(error.message || error));
+        function exportContent(options) {
+            return exporter.doExport({include: options.include}).then((exportedData) => {
+                return {
+                    db: [exportedData]
+                };
+            }).catch((err) => {
+                return Promise.reject(new common.errors.GhostError({err: err}));
             });
         }
 
         tasks = [
-            utils.handlePermissions(docName, 'exportContent'),
+            localUtils.handlePermissions(docName, 'exportContent'),
+            localUtils.convertOptions(exporter.EXCLUDED_TABLES, null, {forModel: false}),
             exportContent
         ];
 
@@ -58,39 +83,24 @@ db = {
      * @param {{context}} options
      * @returns {Promise} Success
      */
-    importContent: function (options) {
-        var tasks = [];
-
+    importContent: function importContent(options) {
+        let tasks;
         options = options || {};
 
-        function validate(options) {
-            // Check if a file was provided
-            if (!utils.checkFileExists(options, 'importfile')) {
-                return Promise.reject(new errors.ValidationError('Please select a file to import.'));
-            }
-
-            // Check if the file is valid
-            if (!utils.checkFileIsValid(options.importfile, importer.getTypes(), importer.getExtensions())) {
-                return Promise.reject(new errors.UnsupportedMediaTypeError(
-                    'Unsupported file. Please try any of the following formats: ' +
-                        _.reduce(importer.getExtensions(), function (memo, ext) {
-                            return memo ? memo + ', ' + ext : ext;
-                        })
-                ));
-            }
-
-            return options;
-        }
-
         function importContent(options) {
-            return importer.importFromFile(options.importfile)
-                .then(api.settings.updateSettingsCache)
-                .return({db: []});
+            return importer.importFromFile(_.omit(options, 'include'), {include: options.include})
+                // NOTE: response can contain 2 objects if images are imported
+                .then((response) => {
+                    return {
+                        db: [],
+                        problems: response.length === 2 ? response[1].problems : response[0].problems
+                    };
+                });
         }
 
         tasks = [
-            validate,
-            utils.handlePermissions(docName, 'importContent'),
+            localUtils.handlePermissions(docName, 'importContent'),
+            localUtils.convertOptions(exporter.EXCLUDED_TABLES, null, {forModel: false}),
             importContent
         ];
 
@@ -104,21 +114,50 @@ db = {
      * @param {{context}} options
      * @returns {Promise} Success
      */
-    deleteAllContent: function (options) {
-        var tasks;
+    deleteAllContent: function deleteAllContent(options) {
+        let tasks;
+        const queryOpts = {columns: 'id', context: {internal: true}, destroyAll: true};
 
         options = options || {};
 
+        /**
+         * @NOTE:
+         * We fetch all posts with `columns:id` to increase the speed of this endpoint.
+         * And if you trigger `post.destroy(..)`, this will trigger bookshelf and model events.
+         * But we only have to `id` available in the model. This won't work, because:
+         *   - model layer can't trigger event e.g. `post.page` to trigger `post|page.unpublished`.
+         *   - `onDestroyed` or `onDestroying` can contain custom logic
+         */
         function deleteContent() {
-            return Promise.resolve(models.deleteAllContent())
-                .return({db: []})
-                .catch(function (error) {
-                    return Promise.reject(new errors.InternalServerError(error.message || error));
-                });
+            return models.Base.transaction((transacting) => {
+                queryOpts.transacting = transacting;
+
+                return models.Post.findAll(queryOpts)
+                    .then((response) => {
+                        return Promise.map(response.models, (post) => {
+                            return models.Post.destroy(Object.assign({id: post.id}, queryOpts));
+                        }, {concurrency: 100});
+                    })
+                    .then(() => {
+                        return models.Tag.findAll(queryOpts);
+                    })
+                    .then((response) => {
+                        return Promise.map(response.models, (tag) => {
+                            return models.Tag.destroy(Object.assign({id: tag.id}, queryOpts));
+                        }, {concurrency: 100});
+                    })
+                    .return({db: []})
+                    .catch((err) => {
+                        throw new common.errors.GhostError({
+                            err: err
+                        });
+                    });
+            });
         }
 
         tasks = [
-            utils.handlePermissions(docName, 'deleteAllContent'),
+            localUtils.handlePermissions(docName, 'deleteAllContent'),
+            backupDatabase,
             deleteContent
         ];
 

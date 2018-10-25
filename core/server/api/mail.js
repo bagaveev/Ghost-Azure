@@ -1,31 +1,40 @@
 // # Mail API
 // API for sending Mail
-var _            = require('lodash').runInContext(),
-    Promise      = require('bluebird'),
-    pipeline     = require('../utils/pipeline'),
-    config       = require('../config'),
-    errors       = require('../errors'),
-    mailer       = require('../mail'),
-    Models       = require('../models'),
-    utils        = require('./utils'),
-    path         = require('path'),
-    fs           = require('fs'),
-    templatesDir = path.resolve(__dirname, '..', 'mail', 'templates'),
-    htmlToText   = require('html-to-text'),
 
-    readFile     = Promise.promisify(fs.readFile),
-    docName      = 'mail',
-    mail;
-
-_.templateSettings.interpolate = /{{([\s\S]+?)}}/g;
+var Promise = require('bluebird'),
+    pipeline = require('../lib/promise/pipeline'),
+    localUtils = require('./utils'),
+    models = require('../models'),
+    common = require('../lib/common'),
+    mail = require('../services/mail'),
+    notificationsAPI = require('./notifications'),
+    docName = 'mail',
+    mailer,
+    apiMail;
 
 /**
  * Send mail helper
  */
-
 function sendMail(object) {
+    if (!(mailer instanceof mail.GhostMailer)) {
+        mailer = new mail.GhostMailer();
+    }
+
     return mailer.send(object.mail[0].message).catch(function (err) {
-        err = new errors.EmailError(err.message);
+        if (mailer.state.usingDirect) {
+            notificationsAPI.add(
+                {
+                    notifications: [{
+                        type: 'warn',
+                        message: [
+                            common.i18n.t('warnings.index.unableToSendEmail'),
+                            common.i18n.t('common.seeLinkForInstructions', {link: 'https://docs.ghost.org/docs/mail-config'})
+                        ].join(' ')
+                    }]
+                },
+                {context: {internal: true}}
+            );
+        }
 
         return Promise.reject(err);
     });
@@ -34,11 +43,11 @@ function sendMail(object) {
 /**
  * ## Mail API Methods
  *
- * **See:** [API Methods](index.js.html#api%20methods)
+ * **See:** [API Methods](constants.js.html#api%20methods)
  * @typedef Mail
  * @param mail
  */
-mail = {
+apiMail = {
     /**
      * ### Send
      * Send an email
@@ -75,9 +84,9 @@ mail = {
         }
 
         tasks = [
-                utils.handlePermissions(docName, 'send'),
-                send,
-                formatResponse
+            localUtils.handlePermissions(docName, 'send'),
+            send,
+            formatResponse
         ];
 
         return pipeline(tasks, options || {});
@@ -99,7 +108,7 @@ mail = {
          */
 
         function modelQuery() {
-            return Models.User.findOne({id: options.context.user});
+            return models.User.findOne({id: options.context.user});
         }
 
         /**
@@ -107,12 +116,12 @@ mail = {
          */
 
         function generateContent(result) {
-            return mail.generateContent({template: 'test'}).then(function (content) {
+            return mail.utils.generateContent({template: 'test'}).then(function (content) {
                 var payload = {
                     mail: [{
                         message: {
                             to: result.get('email'),
-                            subject: 'Test Ghost Email',
+                            subject: common.i18n.t('common.api.mail.testGhostEmail'),
                             html: content.html,
                             text: content.text
                         }
@@ -138,45 +147,7 @@ mail = {
         ];
 
         return pipeline(tasks);
-    },
-
-    /**
-     *
-     * @param {Object} options {
-     *              data: JSON object representing the data that will go into the email
-     *              template: which email template to load (files are stored in /core/server/mail/templates/)
-     *          }
-     * @returns {*}
-     */
-    generateContent: function (options) {
-        var defaults,
-            data;
-
-        defaults = {
-            siteUrl: config.forceAdminSSL ? (config.urlSSL || config.url) : config.url
-        };
-
-        data = _.defaults(defaults, options.data);
-
-        // read the proper email body template
-        return readFile(path.join(templatesDir, options.template + '.html'), 'utf8').then(function (content) {
-            var compiled,
-                htmlContent,
-                textContent;
-
-            // insert user-specific data into the email
-            compiled = _.template(content);
-            htmlContent = compiled(data);
-
-            // generate a plain-text version of the same email
-            textContent = htmlToText.fromString(htmlContent);
-
-            return {
-                html: htmlContent,
-                text: textContent
-            };
-        });
     }
 };
 
-module.exports = mail;
+module.exports = apiMail;

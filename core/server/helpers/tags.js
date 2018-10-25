@@ -5,47 +5,49 @@
 // By default, tags are separated by commas.
 //
 // Note that the standard {{#each tags}} implementation is unaffected by this helper
+const proxy = require('./proxy'),
+    _ = require('lodash'),
+    urlService = proxy.urlService,
+    SafeString = proxy.SafeString,
+    templates = proxy.templates,
+    models = proxy.models;
 
-var hbs             = require('express-hbs'),
-    _               = require('lodash'),
-    config          = require('../config'),
-    utils           = require('./utils'),
-    tags;
-
-tags = function (options) {
+module.exports = function tags(options) {
     options = options || {};
     options.hash = options.hash || {};
 
-    var autolink  = !(_.isString(options.hash.autolink) && options.hash.autolink === 'false'),
+    const autolink = !(_.isString(options.hash.autolink) && options.hash.autolink === 'false'),
         separator = _.isString(options.hash.separator) ? options.hash.separator : ', ',
-        prefix    = _.isString(options.hash.prefix) ? options.hash.prefix : '',
-        suffix    = _.isString(options.hash.suffix) ? options.hash.suffix : '',
-        limit     = options.hash.limit ? parseInt(options.hash.limit, 10) : undefined,
-        output = '';
+        prefix = _.isString(options.hash.prefix) ? options.hash.prefix : '',
+        suffix = _.isString(options.hash.suffix) ? options.hash.suffix : '',
+        limit = options.hash.limit ? parseInt(options.hash.limit, 10) : undefined,
+        visibilityArr = models.Base.Model.parseVisibilityString(options.hash.visibility);
+
+    let output = '',
+        from = options.hash.from ? parseInt(options.hash.from, 10) : 1,
+        to = options.hash.to ? parseInt(options.hash.to, 10) : undefined;
 
     function createTagList(tags) {
-        if (autolink) {
-            return _.map(tags, function (tag) {
-                return utils.linkTemplate({
-                    url: config.urlFor('tag', {tag: tag}),
-                    text: _.escape(tag.name)
-                });
-            });
+        function processTag(tag) {
+            return autolink ? templates.link({
+                url: urlService.getUrlByResourceId(tag.id, {withSubdirectory: true}),
+                text: _.escape(tag.name)
+            }) : _.escape(tag.name);
         }
-        return _(tags).pluck('name').each(_.escape);
+
+        return models.Base.Model.filterByVisibility(tags, visibilityArr, !!options.hash.visibility, processTag);
     }
 
     if (this.tags && this.tags.length) {
         output = createTagList(this.tags);
-
-        if (limit) {
-            output = output.slice(0, limit);
-        }
-
-        output = prefix + output.join(separator) + suffix;
+        from -= 1; // From uses 1-indexed, but array uses 0-indexed.
+        to = to || limit + from || output.length;
+        output = output.slice(from, to).join(separator);
     }
 
-    return new hbs.handlebars.SafeString(output);
-};
+    if (output) {
+        output = prefix + output + suffix;
+    }
 
-module.exports = tags;
+    return new SafeString(output);
+};

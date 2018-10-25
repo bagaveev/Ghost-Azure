@@ -4,40 +4,55 @@
 // Ghost's JSON API is integral to the workings of Ghost, regardless of whether you want to access data internally,
 // from a theme, an app, or from an external app, you'll use the Ghost JSON API to do so.
 
-var _              = require('lodash'),
-    config         = require('../config'),
-    // Include Endpoints
-    configuration  = require('./configuration'),
-    db             = require('./db'),
-    mail           = require('./mail'),
-    notifications  = require('./notifications'),
-    posts          = require('./posts'),
-    roles          = require('./roles'),
-    settings       = require('./settings'),
-    tags           = require('./tags'),
-    clients        = require('./clients'),
-    themes         = require('./themes'),
-    users          = require('./users'),
-    slugs          = require('./slugs'),
+var _ = require('lodash'),
+    Promise = require('bluebird'),
+    models = require('../models'),
+    urlService = require('../services/url'),
+    configuration = require('./configuration'),
+    db = require('./db'),
+    mail = require('./mail'),
+    notifications = require('./notifications'),
+    posts = require('./posts'),
+    schedules = require('./schedules'),
+    roles = require('./roles'),
+    settings = require('./settings'),
+    tags = require('./tags'),
+    invites = require('./invites'),
+    redirects = require('./redirects'),
+    clients = require('./clients'),
+    users = require('./users'),
+    slugs = require('./slugs'),
+    themes = require('./themes'),
+    subscribers = require('./subscribers'),
     authentication = require('./authentication'),
-    uploads        = require('./upload'),
-    dataExport     = require('../data/export'),
+    uploads = require('./upload'),
+    exporter = require('../data/exporter'),
+    slack = require('./slack'),
+    webhooks = require('./webhooks'),
+    oembed = require('./oembed'),
 
     http,
     addHeaders,
     cacheInvalidationHeader,
     locationHeader,
-    contentDispositionHeader,
-    init;
+    contentDispositionHeaderExport,
+    contentDispositionHeaderSubscribers,
+    contentDispositionHeaderRedirects,
+    contentDispositionHeaderRoutes;
 
-/**
- * ### Init
- * Initialise the API - populate the settings cache
- * @return {Promise(Settings)} Resolves to Settings Collection
- */
-init = function init() {
-    return settings.updateSettingsCache();
-};
+function isActiveThemeUpdate(method, endpoint, result) {
+    if (endpoint === 'themes') {
+        if (method === 'PUT') {
+            return true;
+        }
+
+        if (method === 'POST' && result.themes && result.themes[0] && result.themes[0].active === true) {
+            return true;
+        }
+    }
+
+    return false;
+}
 
 /**
  * ### Cache Invalidation Header
@@ -56,20 +71,29 @@ cacheInvalidationHeader = function cacheInvalidationHeader(req, result) {
     var parsedUrl = req._parsedUrl.pathname.replace(/^\/|\/$/g, '').split('/'),
         method = req.method,
         endpoint = parsedUrl[0],
-        cacheInvalidate,
+        subdir = parsedUrl[1],
         jsonResult = result.toJSON ? result.toJSON() : result,
+        INVALIDATE_ALL = '/*',
         post,
         hasStatusChanged,
-        wasDeleted,
         wasPublishedUpdated;
 
-    if (method === 'POST' || method === 'PUT' || method === 'DELETE') {
-        if (endpoint === 'settings' || endpoint === 'users' || endpoint === 'db' || endpoint === 'tags') {
-            cacheInvalidate = '/*';
+    if (isActiveThemeUpdate(method, endpoint, result)) {
+        // Special case for if we're overwriting an active theme
+        return INVALIDATE_ALL;
+    } else if (['POST', 'PUT', 'DELETE'].indexOf(method) > -1) {
+        if (endpoint === 'schedules' && subdir === 'posts') {
+            return INVALIDATE_ALL;
+        }
+        if (['settings', 'users', 'db', 'tags', 'redirects'].indexOf(endpoint) > -1) {
+            return INVALIDATE_ALL;
         } else if (endpoint === 'posts') {
+            if (method === 'DELETE') {
+                return INVALIDATE_ALL;
+            }
+
             post = jsonResult.posts[0];
             hasStatusChanged = post.statusChanged;
-            wasDeleted = method === 'DELETE';
             // Invalidate cache when post was updated but not when post is draft
             wasPublishedUpdated = method === 'PUT' && post.status === 'published';
 
@@ -77,15 +101,14 @@ cacheInvalidationHeader = function cacheInvalidationHeader(req, result) {
             delete post.statusChanged;
 
             // Don't set x-cache-invalidate header for drafts
-            if (hasStatusChanged || wasDeleted || wasPublishedUpdated) {
-                cacheInvalidate = '/*';
+            if (hasStatusChanged || wasPublishedUpdated) {
+                return INVALIDATE_ALL;
             } else {
-                cacheInvalidate = '/' + config.routeKeywords.preview + '/' + post.uuid + '/';
+                // routeKeywords.preview: 'p'
+                return urlService.utils.urlFor({relativeUrl: urlService.utils.urlJoin('/p', post.uuid, '/')});
             }
         }
     }
-
-    return cacheInvalidate;
 };
 
 /**
@@ -100,23 +123,28 @@ cacheInvalidationHeader = function cacheInvalidationHeader(req, result) {
  * @return {String} Resolves to header string
  */
 locationHeader = function locationHeader(req, result) {
-    var apiRoot = config.urlFor('api'),
+    var apiRoot = urlService.utils.urlFor('api'),
         location,
-        newObject;
+        newObject,
+        statusQuery;
 
     if (req.method === 'POST') {
         if (result.hasOwnProperty('posts')) {
             newObject = result.posts[0];
-            location = apiRoot + '/posts/' + newObject.id + '/?status=' + newObject.status;
+            statusQuery = '/?status=' + newObject.status;
+            location = urlService.utils.urlJoin(apiRoot, 'posts', newObject.id, statusQuery);
         } else if (result.hasOwnProperty('notifications')) {
             newObject = result.notifications[0];
-            location = apiRoot + '/notifications/' + newObject.id + '/';
+            location = urlService.utils.urlJoin(apiRoot, 'notifications', newObject.id, '/');
         } else if (result.hasOwnProperty('users')) {
             newObject = result.users[0];
-            location = apiRoot + '/users/' + newObject.id + '/';
+            location = urlService.utils.urlJoin(apiRoot, 'users', newObject.id, '/');
         } else if (result.hasOwnProperty('tags')) {
             newObject = result.tags[0];
-            location = apiRoot + '/tags/' + newObject.id + '/';
+            location = urlService.utils.urlJoin(apiRoot, 'tags', newObject.id, '/');
+        } else if (result.hasOwnProperty('webhooks')) {
+            newObject = result.webhooks[0];
+            location = urlService.utils.urlJoin(apiRoot, 'webhooks', newObject.id, '/');
         }
     }
 
@@ -137,10 +165,24 @@ locationHeader = function locationHeader(req, result) {
  * @see http://tools.ietf.org/html/rfc598
  * @return {string}
  */
-contentDispositionHeader = function contentDispositionHeader() {
-    return dataExport.fileName().then(function then(filename) {
+
+contentDispositionHeaderExport = function contentDispositionHeaderExport() {
+    return exporter.fileName().then(function then(filename) {
         return 'Attachment; filename="' + filename + '"';
     });
+};
+
+contentDispositionHeaderSubscribers = function contentDispositionHeaderSubscribers() {
+    var datetime = (new Date()).toJSON().substring(0, 10);
+    return Promise.resolve('Attachment; filename="subscribers.' + datetime + '.csv"');
+};
+
+contentDispositionHeaderRedirects = function contentDispositionHeaderRedirects() {
+    return Promise.resolve('Attachment; filename="redirects.json"');
+};
+
+contentDispositionHeaderRoutes = () => {
+    return Promise.resolve('Attachment; filename="routes.yaml"');
 };
 
 addHeaders = function addHeaders(apiMethod, req, res, result) {
@@ -163,15 +205,48 @@ addHeaders = function addHeaders(apiMethod, req, res, result) {
         }
     }
 
+    // Add Export Content-Disposition Header
     if (apiMethod === db.exportContent) {
-        contentDisposition = contentDispositionHeader()
-            .then(function addContentDispositionHeader(header) {
-                // Add Content-Disposition Header
-                if (apiMethod === db.exportContent) {
-                    res.set({
-                        'Content-Disposition': header
-                    });
-                }
+        contentDisposition = contentDispositionHeaderExport()
+            .then(function addContentDispositionHeaderExport(header) {
+                res.set({
+                    'Content-Disposition': header
+                });
+            });
+    }
+
+    // Add Subscribers Content-Disposition Header
+    if (apiMethod === subscribers.exportCSV) {
+        contentDisposition = contentDispositionHeaderSubscribers()
+            .then(function addContentDispositionHeaderSubscribers(header) {
+                res.set({
+                    'Content-Disposition': header,
+                    'Content-Type': 'text/csv'
+                });
+            });
+    }
+
+    // Add Redirects Content-Disposition Header
+    if (apiMethod === redirects.download) {
+        contentDisposition = contentDispositionHeaderRedirects()
+            .then(function contentDispositionHeaderRedirects(header) {
+                res.set({
+                    'Content-Disposition': header,
+                    'Content-Type': 'application/json',
+                    'Content-Length': JSON.stringify(result).length
+                });
+            });
+    }
+
+    // Add Routes Content-Disposition Header
+    if (apiMethod === settings.download) {
+        contentDisposition = contentDispositionHeaderRoutes()
+            .then((header) => {
+                res.set({
+                    'Content-Disposition': header,
+                    'Content-Type': 'application/yaml',
+                    'Content-Length': JSON.stringify(result).length
+                });
             });
     }
 
@@ -191,12 +266,19 @@ addHeaders = function addHeaders(apiMethod, req, res, result) {
 http = function http(apiMethod) {
     return function apiHandler(req, res, next) {
         // We define 2 properties for using as arguments in API calls:
-        var object = req.body,
-            options = _.extend({}, req.files, req.query, req.params, {
+        let object = req.body,
+            options = _.extend({}, req.file, {ip: req.ip}, req.query, req.params, {
                 context: {
-                    user: (req.user && req.user.id) ? req.user.id : null
+                    // @TODO: forward the client and user obj (options.context.user.id)
+                    user: ((req.user && req.user.id) || (req.user && models.User.isExternalUser(req.user.id))) ? req.user.id : null,
+                    client: (req.client && req.client.slug) ? req.client.slug : null,
+                    client_id: (req.client && req.client.id) ? req.client.id : null
                 }
             });
+
+        if (req.files) {
+            options.files = req.files;
+        }
 
         // If this is a GET, or a DELETE, req.body should be null, so we only have options (route and query params)
         // If this is a PUT, POST, or PATCH, req.body is an object
@@ -209,6 +291,22 @@ http = function http(apiMethod) {
             // Add X-Cache-Invalidate, Location, and Content-Disposition headers
             return addHeaders(apiMethod, req, res, (response || {}));
         }).then(function then(response) {
+            if (req.method === 'DELETE') {
+                return res.status(204).end();
+            }
+
+            // Keep CSV, yaml formatting
+            if (res.get('Content-Type') && res.get('Content-Type').indexOf('text/csv') === 0 ||
+                res.get('Content-Type') && res.get('Content-Type').indexOf('application/yaml') === 0) {
+                return res.status(200).send(response);
+            }
+
+            // CASE: api method response wants to handle the express response
+            // example: serve files (stream)
+            if (_.isFunction(response)) {
+                return response(req, res, next);
+            }
+
             // Send a properly formatting HTTP response containing the data with correct headers
             res.json(response || {});
         }).catch(function onAPIError(error) {
@@ -222,8 +320,6 @@ http = function http(apiMethod) {
  * ## Public API
  */
 module.exports = {
-    // Extras
-    init: init,
     http: http,
     // API Endpoints
     configuration: configuration,
@@ -231,15 +327,22 @@ module.exports = {
     mail: mail,
     notifications: notifications,
     posts: posts,
+    schedules: schedules,
     roles: roles,
     settings: settings,
     tags: tags,
     clients: clients,
-    themes: themes,
     users: users,
     slugs: slugs,
+    subscribers: subscribers,
     authentication: authentication,
-    uploads: uploads
+    uploads: uploads,
+    slack: slack,
+    themes: themes,
+    invites: invites,
+    redirects: redirects,
+    webhooks: webhooks,
+    oembed: oembed
 };
 
 /**

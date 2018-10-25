@@ -1,22 +1,26 @@
 // # Get Helper
 // Usage: `{{#get "posts" limit="5"}}`, `{{#get "tags" limit="all"}}`
 // Fetches data from the API
-var _               = require('lodash'),
-    hbs             = require('express-hbs'),
-    Promise         = require('bluebird'),
-    errors          = require('../errors'),
-    api             = require('../api'),
-    jsonpath        = require('jsonpath'),
-    labs            = require('../utils/labs'),
+var proxy = require('./proxy'),
+    _ = require('lodash'),
+    Promise = require('bluebird'),
+    jsonpath = require('jsonpath'),
+
+    logging = proxy.logging,
+    i18n = proxy.i18n,
+    createFrame = proxy.hbs.handlebars.createFrame,
+
+    api = proxy.api,
+    labs = proxy.labs,
     resources,
     pathAliases,
     get;
 
 // Endpoints that the helper is able to access
-resources =  ['posts', 'tags', 'users'];
+resources = ['posts', 'tags', 'users'];
 
 // Short forms of paths which we should understand
-pathAliases     = {
+pathAliases = {
     'post.tags': 'post.tags[*].slug',
     'post.author': 'post.author.slug'
 };
@@ -24,11 +28,11 @@ pathAliases     = {
 /**
  * ## Is Browse
  * Is this a Browse request or a Read request?
- * @param {Object} context
+ * @param {Object} resource
  * @param {Object} options
  * @returns {boolean}
  */
-function isBrowse(context, options) {
+function isBrowse(resource, options) {
     var browse = true;
 
     if (options.id || options.slug) {
@@ -57,10 +61,17 @@ function resolvePaths(data, value) {
         // Handle Handlebars .[] style arrays
         path = path.replace(/\.\[/g, '[');
 
-        // Do the query, and convert from array to string
-        result = jsonpath.query(data, path).join(',');
+        // Do the query, which always returns an array of matches
+        result = jsonpath.query(data, path);
 
-        return result;
+        // Handle the case where the single data property we return is a Date
+        // Data.toString() is not DB compatible, so use `toISOString()` instead
+        if (_.isDate(result[0])) {
+            result[0] = result[0].toISOString();
+        }
+
+        // Concatenate the results with a comma, handles common case of multiple tag slugs
+        return result.join(',');
     });
 
     return value;
@@ -84,48 +95,43 @@ function parseOptions(data, options) {
 
 /**
  * ## Get
- * @param {Object} context
+ * @param {Object} resource
  * @param {Object} options
  * @returns {Promise}
  */
-get = function get(context, options) {
+get = function get(resource, options) {
     options = options || {};
     options.hash = options.hash || {};
     options.data = options.data || {};
 
     var self = this,
-        data = hbs.handlebars.createFrame(options.data),
-        apiOptions = _.omit(options.hash, 'context'),
+        data = createFrame(options.data),
+        apiOptions = options.hash,
         apiMethod;
 
     if (!options.fn) {
-        data.error = 'Get helper must be called as a block';
-        errors.logWarn(data.error);
+        data.error = i18n.t('warnings.helpers.mustBeCalledAsBlock', {helperName: 'get'});
+        logging.warn(data.error);
         return Promise.resolve();
     }
 
-    if (!_.contains(resources, context)) {
-        data.error = 'Invalid resource given to get helper';
-        errors.logWarn(data.error);
+    if (!_.includes(resources, resource)) {
+        data.error = i18n.t('warnings.helpers.get.invalidResource');
+        logging.warn(data.error);
         return Promise.resolve(options.inverse(self, {data: data}));
     }
 
     // Determine if this is a read or browse
-    apiMethod = isBrowse(context, apiOptions) ? api[context].browse : api[context].read;
+    apiMethod = isBrowse(resource, apiOptions) ? api[resource].browse : api[resource].read;
     // Parse the options we're going to pass to the API
     apiOptions = parseOptions(this, apiOptions);
 
     return apiMethod(apiOptions).then(function success(result) {
         var blockParams;
 
-        // If no result is found, call the inverse or `{{else}}` function
-        if (_.isEmpty(result[context])) {
-            return options.inverse(self, {data: data});
-        }
-
         // block params allows the theme developer to name the data using something like
         // `{{#get "posts" as |result pageInfo|}}`
-        blockParams = [result[context]];
+        blockParams = [result[resource]];
         if (result.meta && result.meta.pagination) {
             result.pagination = result.meta.pagination;
             blockParams.push(result.meta.pagination);
@@ -137,26 +143,23 @@ get = function get(context, options) {
             blockParams: blockParams
         });
     }).catch(function error(err) {
+        logging.error(err);
         data.error = err.message;
         return options.inverse(self, {data: data});
     });
 };
 
-module.exports = function getWithLabs(context, options) {
+module.exports = function getLabsWrapper() {
     var self = this,
-        errorMessages = [
-            'The {{get}} helper is not available.',
-            'Public API access must be enabled if you wish to use the {{get}} helper.',
-            'See http://support.ghost.org/public-api-beta'
-        ];
+        args = arguments;
 
-    if (labs.isSet('publicAPI') === true) {
-        // get helper is  active
-        return get.call(self, context, options);
-    } else {
-        errors.logError.apply(this, errorMessages);
-        return Promise.resolve(function noGetHelper() {
-            return '<script>console.error("' + errorMessages.join(' ') + '");</script>';
-        });
-    }
+    return labs.enabledHelper({
+        flagKey: 'publicAPI',
+        flagName: 'Public API',
+        helperName: 'get',
+        helpUrl: 'https://help.ghost.org/hc/en-us/articles/115000301672-Public-API-Beta',
+        async: true
+    }, function executeHelper() {
+        return get.apply(self, args);
+    });
 };

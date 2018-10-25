@@ -1,23 +1,26 @@
 // # Posts API
 // RESTful API for the Post resource
-var Promise         = require('bluebird'),
-    _               = require('lodash'),
-    dataProvider    = require('../models'),
-    errors          = require('../errors'),
-    utils           = require('./utils'),
-    pipeline        = require('../utils/pipeline'),
-
-    docName         = 'posts',
+const Promise = require('bluebird'),
+    _ = require('lodash'),
+    pipeline = require('../lib/promise/pipeline'),
+    localUtils = require('./utils'),
+    models = require('../models'),
+    common = require('../lib/common'),
+    docName = 'posts',
+    /**
+     * @deprecated: `author`, will be removed in Ghost 3.0
+     */
     allowedIncludes = [
-        'created_by', 'updated_by', 'published_by', 'author', 'tags', 'fields',
-        'next', 'previous', 'next.author', 'next.tags', 'previous.author', 'previous.tags'
+        'created_by', 'updated_by', 'published_by', 'author', 'tags', 'fields', 'authors', 'authors.roles'
     ],
-    posts;
+    unsafeAttrs = ['author_id', 'status', 'authors'];
+
+let posts;
 
 /**
  * ### Posts API Methods
  *
- * **See:** [API Methods](index.js.html#api%20methods)
+ * **See:** [API Methods](constants.js.html#api%20methods)
  */
 
 posts = {
@@ -36,7 +39,7 @@ posts = {
      * @returns {Promise<Posts>} Posts Collection with Meta
      */
     browse: function browse(options) {
-        var extraOptions = ['status'],
+        var extraOptions = ['status', 'formats', 'absolute_urls'],
             permittedOptions,
             tasks;
 
@@ -45,7 +48,7 @@ posts = {
         if (options && options.context && (options.context.user || options.context.internal)) {
             extraOptions.push('staticPages');
         }
-        permittedOptions = utils.browseDefaultOptions.concat(extraOptions);
+        permittedOptions = localUtils.browseDefaultOptions.concat(extraOptions);
 
         /**
          * ### Model Query
@@ -54,14 +57,14 @@ posts = {
          * @returns {Object} options
          */
         function modelQuery(options) {
-            return dataProvider.Post.findPage(options);
+            return models.Post.findPage(options);
         }
 
         // Push all of our tasks into a `tasks` array in the correct order
         tasks = [
-            utils.validate(docName, {opts: permittedOptions}),
-            utils.handlePublicPermissions(docName, 'browse'),
-            utils.convertOptions(allowedIncludes),
+            localUtils.validate(docName, {opts: permittedOptions}),
+            localUtils.convertOptions(allowedIncludes, models.Post.allowedFormats),
+            localUtils.handlePublicPermissions(docName, 'browse', unsafeAttrs),
             modelQuery
         ];
 
@@ -79,6 +82,8 @@ posts = {
      */
     read: function read(options) {
         var attrs = ['id', 'slug', 'status', 'uuid'],
+            // NOTE: the scheduler API uses the post API and forwards custom options
+            extraAllowedOptions = options.opts || ['formats', 'absolute_urls'],
             tasks;
 
         /**
@@ -88,26 +93,30 @@ posts = {
          * @returns {Object} options
          */
         function modelQuery(options) {
-            return dataProvider.Post.findOne(options.data, _.omit(options, ['data']));
+            return models.Post.findOne(options.data, _.omit(options, ['data']))
+                .then(function onModelResponse(model) {
+                    if (!model) {
+                        return Promise.reject(new common.errors.NotFoundError({
+                            message: common.i18n.t('errors.api.posts.postNotFound')
+                        }));
+                    }
+
+                    return {
+                        posts: [model.toJSON(options)]
+                    };
+                });
         }
 
         // Push all of our tasks into a `tasks` array in the correct order
         tasks = [
-            utils.validate(docName, {attrs: attrs}),
-            utils.handlePublicPermissions(docName, 'read'),
-            utils.convertOptions(allowedIncludes),
+            localUtils.validate(docName, {attrs: attrs, opts: extraAllowedOptions}),
+            localUtils.convertOptions(allowedIncludes, models.Post.allowedFormats),
+            localUtils.handlePublicPermissions(docName, 'read', unsafeAttrs),
             modelQuery
         ];
 
         // Pipeline calls each task passing the result of one to be the arguments for the next
-        return pipeline(tasks, options).then(function formatResponse(result) {
-            // @TODO make this a formatResponse task?
-            if (result) {
-                return {posts: [result.toJSON(options)]};
-            }
-
-            return Promise.reject(new errors.NotFoundError('Post not found.'));
-        });
+        return pipeline(tasks, options);
     },
 
     /**
@@ -120,7 +129,9 @@ posts = {
      * @return {Promise(Post)} Edited Post
      */
     edit: function edit(object, options) {
-        var tasks;
+        var tasks,
+            // NOTE: the scheduler API uses the post API and forwards custom options
+            extraAllowedOptions = options.opts || [];
 
         /**
          * ### Model Query
@@ -129,32 +140,39 @@ posts = {
          * @returns {Object} options
          */
         function modelQuery(options) {
-            return dataProvider.Post.edit(options.data.posts[0], _.omit(options, ['data']));
+            return models.Post.edit(options.data.posts[0], _.omit(options, ['data']))
+                .then(function onModelResponse(model) {
+                    if (!model) {
+                        return Promise.reject(new common.errors.NotFoundError({
+                            message: common.i18n.t('errors.api.posts.postNotFound')
+                        }));
+                    }
+
+                    var post = model.toJSON(options);
+
+                    // If previously was not published and now is (or vice versa), signal the change
+                    // @TODO: `statusChanged` get's added for the API headers only. Reconsider this.
+                    post.statusChanged = false;
+                    if (model.updated('status') !== model.get('status')) {
+                        post.statusChanged = true;
+                    }
+
+                    return {
+                        posts: [post]
+                    };
+                });
         }
 
         // Push all of our tasks into a `tasks` array in the correct order
         tasks = [
-            utils.validate(docName, {opts: utils.idDefaultOptions}),
-            utils.handlePermissions(docName, 'edit'),
-            utils.convertOptions(allowedIncludes),
+            localUtils.validate(docName, {opts: localUtils.idDefaultOptions.concat(extraAllowedOptions)}),
+            localUtils.convertOptions(allowedIncludes),
+            localUtils.handlePermissions(docName, 'edit', unsafeAttrs),
             modelQuery
         ];
 
         // Pipeline calls each task passing the result of one to be the arguments for the next
-        return pipeline(tasks, object, options).then(function formatResponse(result) {
-            if (result) {
-                var post = result.toJSON(options);
-
-                // If previously was not published and now is (or vice versa), signal the change
-                post.statusChanged = false;
-                if (result.updated('status') !== result.get('status')) {
-                    post.statusChanged = true;
-                }
-                return {posts: [post]};
-            }
-
-            return Promise.reject(new errors.NotFoundError('Post not found.'));
-        });
+        return pipeline(tasks, object, options);
     },
 
     /**
@@ -176,76 +194,68 @@ posts = {
          * @returns {Object} options
          */
         function modelQuery(options) {
-            return dataProvider.Post.add(options.data.posts[0], _.omit(options, ['data']));
+            return models.Post.add(options.data.posts[0], _.omit(options, ['data']))
+                .then(function onModelResponse(model) {
+                    var post = model.toJSON(options);
+
+                    if (post.status === 'published') {
+                        // When creating a new post that is published right now, signal the change
+                        post.statusChanged = true;
+                    }
+
+                    return {posts: [post]};
+                });
         }
 
         // Push all of our tasks into a `tasks` array in the correct order
         tasks = [
-            utils.validate(docName),
-            utils.handlePermissions(docName, 'add'),
-            utils.convertOptions(allowedIncludes),
+            localUtils.validate(docName),
+            localUtils.convertOptions(allowedIncludes),
+            localUtils.handlePermissions(docName, 'add', unsafeAttrs),
             modelQuery
         ];
 
         // Pipeline calls each task passing the result of one to be the arguments for the next
-        return pipeline(tasks, object, options).then(function formatResponse(result) {
-            var post = result.toJSON(options);
-
-            if (post.status === 'published') {
-                // When creating a new post that is published right now, signal the change
-                post.statusChanged = true;
-            }
-            return {posts: [post]};
-        });
+        return pipeline(tasks, object, options);
     },
 
     /**
      * ## Destroy
-     * Delete a post, cleans up tag relations, but not unused tags
+     * Delete a post, cleans up tag relations, but not unused tags.
+     * You can only delete a post by `id`.
      *
      * @public
      * @param {{id (required), context,...}} options
-     * @return {Promise(Post)} Deleted Post
+     * @return {Promise}
      */
     destroy: function destroy(options) {
         var tasks;
 
         /**
-         * ### Model Query
-         * Make the call to the Model layer
-         * @param {Object} options
-         * @returns {Object} options
+         * @function deletePost
+         * @param  {Object} options
          */
-        function modelQuery(options) {
-            // Removing a post needs to include all posts.
-            options.status = 'all';
-            return posts.read(options).then(function (result) {
-                return dataProvider.Post.destroy(options).then(function () {
-                    return result;
+        function deletePost(options) {
+            const opts = _.defaults({require: true}, options);
+
+            return models.Post.destroy(opts).return(null)
+                .catch(models.Post.NotFoundError, function () {
+                    throw new common.errors.NotFoundError({
+                        message: common.i18n.t('errors.api.posts.postNotFound')
+                    });
                 });
-            });
         }
 
         // Push all of our tasks into a `tasks` array in the correct order
         tasks = [
-            utils.validate(docName, {opts: utils.idDefaultOptions}),
-            utils.handlePermissions(docName, 'destroy'),
-            utils.convertOptions(allowedIncludes),
-            modelQuery
+            localUtils.validate(docName, {opts: localUtils.idDefaultOptions}),
+            localUtils.convertOptions(allowedIncludes),
+            localUtils.handlePermissions(docName, 'destroy', unsafeAttrs),
+            deletePost
         ];
 
         // Pipeline calls each task passing the result of one to be the arguments for the next
-        return pipeline(tasks, options).then(function formatResponse(result) {
-            var deletedObj = result;
-
-            if (deletedObj.posts) {
-                _.each(deletedObj.posts, function (post) {
-                    post.statusChanged = true;
-                });
-            }
-
-            return deletedObj;
-        });
+        return pipeline(tasks, options);
     }
 };
 
