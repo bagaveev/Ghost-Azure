@@ -14,5 +14,15 @@
 		"frontend": {
 			"maxAge": 600
 		}
-	}
+	},
+    "mail": {
+        "transport": "SMTP",
+        "options": {
+            "service": "Mailgun",
+            "auth": {
+                "user": "admin",
+                "pass": "OFk6xKg8ClcknneRmRdw"
+            }
+        }
+    }
 }
