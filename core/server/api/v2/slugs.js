@@ -1,11 +1,15 @@
 const models = require('../../models');
-const common = require('../../lib/common');
+const tpl = require('@tryghost/tpl');
+const errors = require('@tryghost/errors');
+
+const messages = {
+    couldNotGenerateSlug: 'Could not generate slug.'
+};
 
 const allowedTypes = {
     post: models.Post,
     tag: models.Tag,
-    user: models.User,
-    app: models.App
+    user: models.User
 };
 
 module.exports = {
@@ -36,8 +40,8 @@ module.exports = {
             return models.Base.Model.generateSlug(allowedTypes[frame.options.type], frame.data.name, {status: 'all'})
                 .then((slug) => {
                     if (!slug) {
-                        return Promise.reject(new common.errors.GhostError({
-                            message: common.i18n.t('errors.api.slugs.couldNotGenerateSlug')
+                        return Promise.reject(new errors.InternalServerError({
+                            message: tpl(messages.couldNotGenerateSlug)
                         }));
                     }
                     return slug;

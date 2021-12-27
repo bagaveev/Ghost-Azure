@@ -1,15 +1,20 @@
 // ### Navigation Helper
 // `{{navigation}}`
 // Outputs navigation menu of static urls
+const {SafeString, templates, hbs} = require('../services/rendering');
 
-var proxy = require('./proxy'),
-    string = require('../../server/lib/security/string'),
-    _ = require('lodash'),
-    SafeString = proxy.SafeString,
-    createFrame = proxy.hbs.handlebars.createFrame,
-    i18n = proxy.i18n,
-    errors = proxy.errors,
-    templates = proxy.templates;
+const errors = require('@tryghost/errors');
+const tpl = require('@tryghost/tpl');
+const {slugify} = require('@tryghost/string');
+const _ = require('lodash');
+
+const messages = {
+    invalidData: 'navigation data is not an object or is a function',
+    valuesMustBeDefined: 'All values must be defined for label, url and current',
+    valuesMustBeString: 'Invalid value, Url and Label must be strings'
+};
+
+const createFrame = hbs.handlebars.createFrame;
 
 module.exports = function navigation(options) {
     options = options || {};
@@ -17,17 +22,19 @@ module.exports = function navigation(options) {
     options.data = options.data || {};
 
     const key = options.hash.type && options.hash.type === 'secondary' ? 'secondary_navigation' : 'navigation';
-    options.hash.isSecondary = options.hash.type && options.hash.type === 'secondary';
+    // Set isSecondary so we can compare in the template
+    options.hash.isSecondary = !!(options.hash.type && options.hash.type === 'secondary');
+    // Remove type, so it's not accessible
     delete options.hash.type;
 
-    var navigationData = options.data.site[key],
-        currentUrl = options.data.root.relativeUrl,
-        self = this,
-        output;
+    const navigationData = options.data.site[key];
+    const currentUrl = options.data.root.relativeUrl;
+    const self = this;
+    let output;
 
     if (!_.isObject(navigationData) || _.isFunction(navigationData)) {
         throw new errors.IncorrectUsageError({
-            message: i18n.t('warnings.helpers.navigation.invalidData')
+            message: tpl(messages.invalidData)
         });
     }
 
@@ -35,7 +42,7 @@ module.exports = function navigation(options) {
         return (_.isUndefined(e.label) || _.isUndefined(e.url));
     }).length > 0) {
         throw new errors.IncorrectUsageError({
-            message: i18n.t('warnings.helpers.navigation.valuesMustBeDefined')
+            message: tpl(messages.valuesMustBeDefined)
         });
     }
 
@@ -45,22 +52,18 @@ module.exports = function navigation(options) {
             (!_.isNull(e.url) && !_.isString(e.url)));
     }).length > 0) {
         throw new errors.IncorrectUsageError({
-            message: i18n.t('warnings.helpers.navigation.valuesMustBeString')
+            message: tpl(messages.valuesMustBeString)
         });
     }
 
-    function _slugify(label) {
-        return string.safe(label);
-    }
-
     // strips trailing slashes and compares urls
-    function _isCurrentUrl(href, currentUrl) {
-        if (!currentUrl) {
+    function _isCurrentUrl(href, url) {
+        if (!url) {
             return false;
         }
 
-        var strippedHref = href.replace(/\/+$/, ''),
-            strippedCurrentUrl = currentUrl.replace(/\/+$/, '');
+        const strippedHref = href.replace(/\/+$/, '');
+        const strippedCurrentUrl = url.replace(/\/+$/, '');
         return strippedHref === strippedCurrentUrl;
     }
 
@@ -70,10 +73,10 @@ module.exports = function navigation(options) {
     }
 
     output = navigationData.map(function (e) {
-        var out = {};
+        const out = {};
         out.current = _isCurrentUrl(e.url, currentUrl);
         out.label = e.label;
-        out.slug = _slugify(e.label);
+        out.slug = slugify(e.label);
         out.url = e.url;
         out.secure = self.secure;
         return out;

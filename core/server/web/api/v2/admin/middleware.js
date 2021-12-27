@@ -1,6 +1,12 @@
-const common = require('../../../../lib/common');
+const errors = require('@tryghost/errors');
+const tpl = require('@tryghost/tpl');
 const auth = require('../../../../services/auth');
 const shared = require('../../../shared');
+const apiMw = require('../../middleware');
+
+const messages = {
+    notImplemented: 'The server does not support the functionality required to fulfill the request.'
+};
 
 const notImplemented = function (req, res, next) {
     // CASE: user is logged in, allow
@@ -9,18 +15,17 @@ const notImplemented = function (req, res, next) {
     }
 
     // @NOTE: integrations have limited access for now
-    const whitelisted = {
-        // @NOTE: stable
+    //        all APIs are considered to be in "maintenance" stability index
+    const allowlisted = {
         site: ['GET'],
         posts: ['GET', 'PUT', 'DELETE', 'POST'],
         pages: ['GET', 'PUT', 'DELETE', 'POST'],
         images: ['POST'],
-        // @NOTE: experimental
+        webhooks: ['POST', 'PUT', 'DELETE'],
         tags: ['GET', 'PUT', 'DELETE', 'POST'],
         users: ['GET'],
         themes: ['POST', 'PUT'],
         config: ['GET'],
-        webhooks: ['POST', 'DELETE'],
         schedules: ['PUT'],
         db: ['POST']
     };
@@ -30,14 +35,14 @@ const notImplemented = function (req, res, next) {
     if (match) {
         const entity = match[1];
 
-        if (whitelisted[entity] && whitelisted[entity].includes(req.method)) {
+        if (allowlisted[entity] && allowlisted[entity].includes(req.method)) {
             return next();
         }
     }
 
-    next(new common.errors.GhostError({
+    next(new errors.InternalServerError({
         errorType: 'NotImplementedError',
-        message: common.i18n.t('errors.api.common.notImplemented'),
+        message: tpl(messages.notImplemented),
         statusCode: '501'
     }));
 };
@@ -48,10 +53,10 @@ const notImplemented = function (req, res, next) {
 module.exports.authAdminApi = [
     auth.authenticate.authenticateAdminApi,
     auth.authorize.authorizeAdminApi,
-    shared.middlewares.updateUserLastSeen,
-    shared.middlewares.api.cors,
-    shared.middlewares.urlRedirects.adminRedirect,
-    shared.middlewares.prettyUrls,
+    apiMw.updateUserLastSeen,
+    apiMw.cors,
+    shared.middleware.urlRedirects.adminSSLAndHostRedirect,
+    shared.middleware.prettyUrls,
     notImplemented
 ];
 
@@ -62,10 +67,10 @@ module.exports.authAdminApi = [
 module.exports.authAdminApiWithUrl = [
     auth.authenticate.authenticateAdminApiWithUrl,
     auth.authorize.authorizeAdminApi,
-    shared.middlewares.updateUserLastSeen,
-    shared.middlewares.api.cors,
-    shared.middlewares.urlRedirects.adminRedirect,
-    shared.middlewares.prettyUrls,
+    apiMw.updateUserLastSeen,
+    apiMw.cors,
+    shared.middleware.urlRedirects.adminSSLAndHostRedirect,
+    shared.middleware.prettyUrls,
     notImplemented
 ];
 
@@ -73,9 +78,8 @@ module.exports.authAdminApiWithUrl = [
  * Middleware for public admin endpoints
  */
 module.exports.publicAdminApi = [
-    shared.middlewares.api.cors,
-    shared.middlewares.urlRedirects.adminRedirect,
-    shared.middlewares.prettyUrls,
+    apiMw.cors,
+    shared.middleware.urlRedirects.adminSSLAndHostRedirect,
+    shared.middleware.prettyUrls,
     notImplemented
 ];
-

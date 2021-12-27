@@ -1,8 +1,9 @@
 const _ = require('lodash');
-const debug = require('ghost-ignition').debug('api:canary:utils:serializers:input:pages');
-const mapNQLKeyValues = require('../../../../../../shared/nql-map-key-values');
-const converters = require('../../../../../lib/mobiledoc/converters');
+const debug = require('@tryghost/debug')('api:canary:utils:serializers:input:pages');
+const mapNQLKeyValues = require('@nexes/nql').utils.mapKeyValues;
+const mobiledoc = require('../../../../../lib/mobiledoc');
 const url = require('./utils/url');
+const slugFilterOrder = require('./utils/slug-filter-order');
 const localUtils = require('../../index');
 const postsMetaSchema = require('../../../../../data/schema').tables.posts_meta;
 
@@ -48,7 +49,11 @@ function setDefaultOrder(frame) {
         includesOrderedRelations = _.intersection(orderedRelations, frame.options.withRelated).length > 0;
     }
 
-    if (!frame.options.order && !includesOrderedRelations) {
+    if (!frame.options.order && !includesOrderedRelations && frame.options.filter) {
+        frame.options.autoOrder = slugFilterOrder('posts', frame.options.filter);
+    }
+
+    if (!frame.options.order && !frame.options.autoOrder && !includesOrderedRelations) {
         frame.options.order = 'title asc';
     }
 }
@@ -97,6 +102,13 @@ const forceStatusFilter = (frame) => {
     }
 };
 
+const transformPageVisibilityFilters = (frame) => {
+    if (frame.data.pages[0].visibility === 'filter' && frame.data.pages[0].visibility_filter) {
+        frame.data.pages[0].visibility = frame.data.pages[0].visibility_filter;
+    }
+    delete frame.data.pages[0].visibility_filter;
+};
+
 module.exports = {
     browse(apiConfig, frame) {
         debug('browse');
@@ -143,7 +155,7 @@ module.exports = {
             const html = frame.data.pages[0].html;
 
             if (frame.options.source === 'html' && !_.isEmpty(html)) {
-                frame.data.pages[0].mobiledoc = JSON.stringify(converters.htmlToMobiledocConverter(html));
+                frame.data.pages[0].mobiledoc = JSON.stringify(mobiledoc.htmlToMobiledocConverter(html));
             }
         }
 
@@ -175,6 +187,7 @@ module.exports = {
             });
         }
 
+        transformPageVisibilityFilters(frame);
         handlePostsMeta(frame);
         defaultFormat(frame);
         defaultRelations(frame);
@@ -184,7 +197,6 @@ module.exports = {
         debug('edit');
         this.add(...arguments, {add: false});
 
-        handlePostsMeta(frame);
         forceStatusFilter(frame);
         forcePageFilter(frame);
     },

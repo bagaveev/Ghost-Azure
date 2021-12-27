@@ -1,5 +1,16 @@
-const common = require('../../lib/common');
+const tpl = require('@tryghost/tpl');
+const errors = require('@tryghost/errors');
 const models = require('../../models');
+const getIntegrationsServiceInstance = require('../../services/integrations/integrations-service');
+
+const messages = {
+    resourceNotFound: '{resource} not found.'
+};
+
+const integrationsService = getIntegrationsServiceInstance({
+    IntegrationModel: models.Integration,
+    ApiKeyModel: models.ApiKey
+});
 
 module.exports = {
     docName: 'integrations',
@@ -43,10 +54,8 @@ module.exports = {
         query({data, options}) {
             return models.Integration.findOne(data, Object.assign(options, {require: true}))
                 .catch(models.Integration.NotFoundError, () => {
-                    throw new common.errors.NotFoundError({
-                        message: common.i18n.t('errors.api.resource.resourceNotFound', {
-                            resource: 'Integration'
-                        })
+                    throw new errors.NotFoundError({
+                        message: tpl(messages.resourceNotFound, {resource: 'Integration'})
                     });
                 });
         }
@@ -61,6 +70,7 @@ module.exports = {
         ],
         options: [
             'id',
+            'keyid',
             'include'
         ],
         validation: {
@@ -74,14 +84,7 @@ module.exports = {
             }
         },
         query({data, options}) {
-            return models.Integration.edit(data, Object.assign(options, {require: true}))
-                .catch(models.Integration.NotFoundError, () => {
-                    throw new common.errors.NotFoundError({
-                        message: common.i18n.t('errors.api.resource.resourceNotFound', {
-                            resource: 'Integration'
-                        })
-                    });
-                });
+            return integrationsService.edit(data, options);
         }
     },
     add: {
@@ -134,11 +137,9 @@ module.exports = {
         query({options}) {
             return models.Integration.destroy(Object.assign(options, {require: true}))
                 .catch(models.Integration.NotFoundError, () => {
-                    throw new common.errors.NotFoundError({
-                        message: common.i18n.t('errors.api.resource.resourceNotFound', {
-                            resource: 'Integration'
-                        })
-                    });
+                    return Promise.reject(new errors.NotFoundError({
+                        message: tpl(messages.resourceNotFound, {resource: 'Integration'})
+                    }));
                 });
         }
     }

@@ -1,6 +1,11 @@
 const Promise = require('bluebird');
-const debug = require('ghost-ignition').debug('api:canary:utils:validators:input:users');
-const common = require('../../../../../lib/common');
+const debug = require('@tryghost/debug')('api:canary:utils:validators:input:users');
+const tpl = require('@tryghost/tpl');
+const errors = require('@tryghost/errors');
+
+const messages = { 
+    newPasswordsDoNotMatch: 'Your new passwords do not match'
+};
 
 module.exports = {
     changePassword(apiConfig, frame) {
@@ -9,8 +14,8 @@ module.exports = {
         const data = frame.data.password[0];
 
         if (data.newPassword !== data.ne2Password) {
-            return Promise.reject(new common.errors.ValidationError({
-                message: common.i18n.t('errors.models.user.newPasswordsDoNotMatch')
+            return Promise.reject(new errors.ValidationError({
+                message: tpl(messages.newPasswordsDoNotMatch)
             }));
         }
     }

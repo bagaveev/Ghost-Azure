@@ -1,8 +1,13 @@
-const debug = require('ghost-ignition').debug('api:canary:utils:permissions');
+const debug = require('@tryghost/debug')('api:canary:utils:permissions');
 const Promise = require('bluebird');
 const _ = require('lodash');
 const permissions = require('../../../services/permissions');
-const common = require('../../../lib/common');
+const tpl = require('@tryghost/tpl');
+const errors = require('@tryghost/errors');
+
+const messages = {
+    noPermissionToCall: 'You do not have permission to {method} {docName}'
+};
 
 /**
  * @description Handle requests, which need authentication.
@@ -14,8 +19,12 @@ const common = require('../../../lib/common');
 const nonePublicAuth = (apiConfig, frame) => {
     debug('check admin permissions');
 
-    const singular = apiConfig.docName.replace(/s$/, '');
-
+    let singular;
+    if (apiConfig.docName.match(/ies$/)) {
+        singular = apiConfig.docName.replace(/ies$/, 'y');
+    } else {
+        singular = apiConfig.docName.replace(/s$/, '');
+    }
     let permissionIdentifier = frame.options.id;
 
     // CASE: Target ctrl can override the identifier. The identifier is the unique identifier of the target resource
@@ -49,19 +58,19 @@ const nonePublicAuth = (apiConfig, frame) => {
             frame.data[apiConfig.docName][0] = _.omit(frame.data[apiConfig.docName][0], result.excludedAttrs);
         }
     }).catch((err) => {
-        if (err instanceof common.errors.NoPermissionError) {
-            err.message = common.i18n.t('errors.api.utils.noPermissionToCall', {
+        if (err instanceof errors.NoPermissionError) {
+            err.message = tpl(messages.noPermissionToCall, {
                 method: apiConfig.method,
                 docName: apiConfig.docName
             });
             return Promise.reject(err);
         }
 
-        if (common.errors.utils.isIgnitionError(err)) {
+        if (errors.utils.isGhostError(err)) {
             return Promise.reject(err);
         }
 
-        return Promise.reject(new common.errors.GhostError({
+        return Promise.reject(new errors.InternalServerError({
             err: err
         }));
     });

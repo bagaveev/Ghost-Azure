@@ -1,60 +1,33 @@
-// # API routes
-const debug = require('ghost-ignition').debug('api'),
-    boolParser = require('express-query-boolean'),
-    express = require('express'),
-
-    // routes
-    routes = require('./routes'),
-
-    // Include the middleware
-
-    // API specific
-    versionMatch = require('../middleware/api/version-match'), // global
-
-    // Shared
-    bodyParser = require('body-parser'), // global, shared
-    cacheControl = require('../middleware/cache-control'), // global, shared
-    maintenance = require('../middleware/maintenance'), // global, shared
-    errorHandler = require('../middleware/error-handler'); // global, shared
+const debug = require('@tryghost/debug')('web:api:default:app');
+const config = require('../../../shared/config');
+const express = require('../../../shared/express');
+const urlUtils = require('../../../shared/url-utils');
+const errorHandler = require('../shared/middleware/error-handler');
 
 module.exports = function setupApiApp() {
-    debug('API setup start');
-    const apiApp = express();
+    debug('Parent API setup start');
+    const apiApp = express('api');
 
-    // @TODO finish refactoring this away.
-    apiApp.use(function setIsAdmin(req, res, next) {
-        // api === isAdmin
-        res.isAdmin = true;
-        next();
-    });
+    if (config.get('server:testmode')) {
+        apiApp.use(require('./testmode')());
+    }
 
-    // API middleware
+    apiApp.lazyUse(urlUtils.getVersionPath({ version: 'v2', type: 'content' }), require('./v2/content/app'));
+    apiApp.lazyUse(urlUtils.getVersionPath({ version: 'v2', type: 'admin' }), require('./v2/admin/app'));
 
-    // Body parsing
-    apiApp.use(bodyParser.json({limit: '1mb'}));
-    apiApp.use(bodyParser.urlencoded({extended: true, limit: '1mb'}));
+    apiApp.lazyUse(urlUtils.getVersionPath({ version: 'v3', type: 'content' }), require('./v3/content/app'));
+    apiApp.lazyUse(urlUtils.getVersionPath({ version: 'v3', type: 'admin' }), require('./v3/admin/app'));
 
-    // Query parsing
-    apiApp.use(boolParser());
+    apiApp.lazyUse(urlUtils.getVersionPath({ version: 'v4', type: 'content' }), require('./canary/content/app'));
+    apiApp.lazyUse(urlUtils.getVersionPath({ version: 'v4', type: 'admin' }), require('./canary/admin/app'));
 
-    // send 503 json response in case of maintenance
-    apiApp.use(maintenance);
+    apiApp.lazyUse(urlUtils.getVersionPath({ version: 'canary', type: 'content' }), require('./canary/content/app'));
+    apiApp.lazyUse(urlUtils.getVersionPath({ version: 'canary', type: 'admin' }), require('./canary/admin/app'));
 
-    // Check version matches for API requests, depends on res.locals.safeVersion being set
-    // Therefore must come after themeHandler.ghostLocals, for now
-    apiApp.use(versionMatch);
-
-    // API shouldn't be cached
-    apiApp.use(cacheControl('private'));
-
-    // Routing
-    apiApp.use(routes());
-
-    // API error handling
+    // Error handling for requests to non-existent API versions
     apiApp.use(errorHandler.resourceNotFound);
     apiApp.use(errorHandler.handleJSONResponse);
 
-    debug('API setup end');
-
+    debug('Parent API setup end');
     return apiApp;
 };

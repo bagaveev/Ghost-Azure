@@ -1,8 +1,13 @@
-var _ = require('lodash'),
-    Promise = require('bluebird'),
-    common = require('../../lib/common'),
-    parseContext = require('./parse-context'),
-    _private = {};
+const _ = require('lodash');
+const Promise = require('bluebird');
+const errors = require('@tryghost/errors');
+const tpl = require('@tryghost/tpl');
+const parseContext = require('./parse-context');
+const _private = {};
+
+const messages = {
+    error: 'You do not have permission to retrieve {docName} with that status'
+};
 
 /**
  * @TODO:
@@ -16,7 +21,7 @@ var _ = require('lodash'),
  * - public context cannot fetch draft/scheduled posts
  */
 _private.applyStatusRules = function applyStatusRules(docName, method, opts) {
-    var err = new common.errors.NoPermissionError({message: common.i18n.t('errors.permissions.applyStatusRules.error', {docName: docName})});
+    const err = new errors.NoPermissionError({message: tpl(messages.error, {docName: docName})});
 
     // Enforce status 'active' for users
     if (docName === 'users') {

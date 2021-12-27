@@ -1,6 +1,11 @@
 const models = require('../../models');
-const common = require('../../lib/common');
+const tpl = require('@tryghost/tpl');
+const errors = require('@tryghost/errors');
 const allowedIncludes = ['tags', 'authors'];
+
+const messages = {
+    postNotFound: 'Post not found.'
+};
 
 module.exports = {
     docName: 'posts',
@@ -61,8 +66,8 @@ module.exports = {
             return models.Post.findOne(frame.data, frame.options)
                 .then((model) => {
                     if (!model) {
-                        throw new common.errors.NotFoundError({
-                            message: common.i18n.t('errors.api.posts.postNotFound')
+                        throw new errors.NotFoundError({
+                            message: tpl(messages.postNotFound)
                         });
                     }
 

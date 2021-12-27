@@ -4,7 +4,7 @@
 //
 // Returns URI encoded string
 
-const {SafeString} = require('./proxy');
+const {SafeString} = require('../services/rendering');
 
 module.exports = function encode(string, options) {
     const uri = string || options;

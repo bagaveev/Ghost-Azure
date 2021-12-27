@@ -1,7 +1,13 @@
 const Promise = require('bluebird');
-const validator = require('validator');
-const debug = require('ghost-ignition').debug('api:canary:utils:validators:input:passwordreset');
-const common = require('../../../../../lib/common');
+const validator = require('@tryghost/validator');
+const debug = require('@tryghost/debug')('api:canary:utils:validators:input:passwordreset');
+const tpl = require('@tryghost/tpl');
+const errors = require('@tryghost/errors');
+
+const messages = {
+    newPasswordsDoNotMatch: 'Your new passwords do not match',
+    invalidEmailReceived: 'The server did not receive a valid email'
+};
 
 module.exports = {
     resetPassword(apiConfig, frame) {
@@ -10,8 +16,8 @@ module.exports = {
         const data = frame.data.passwordreset[0];
 
         if (data.newPassword !== data.ne2Password) {
-            return Promise.reject(new common.errors.ValidationError({
-                message: common.i18n.t('errors.models.user.newPasswordsDoNotMatch')
+            return Promise.reject(new errors.ValidationError({
+                message: tpl(messages.newPasswordsDoNotMatch)
             }));
         }
     },
@@ -22,8 +28,8 @@ module.exports = {
         const email = frame.data.passwordreset[0].email;
 
         if (typeof email !== 'string' || !validator.isEmail(email)) {
-            throw new common.errors.BadRequestError({
-                message: common.i18n.t('errors.api.authentication.invalidEmailReceived')
+            throw new errors.BadRequestError({
+                message: tpl(messages.invalidEmailReceived)
             });
         }
     }

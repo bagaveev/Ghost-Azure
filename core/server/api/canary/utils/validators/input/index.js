@@ -27,12 +27,24 @@ module.exports = {
         return require('./members');
     },
 
+    get media() {
+        return require('./media');
+    },
+
+    get files() {
+        return require('./files');
+    },
+
     get settings() {
         return require('./settings');
     },
 
     get tags() {
         return require('./tags');
+    },
+
+    get labels() {
+        return require('./labels');
     },
 
     get users() {
@@ -45,5 +57,13 @@ module.exports = {
 
     get oembed() {
         return require('./oembed');
+    },
+
+    get webhooks() {
+        return require('./webhooks');
+    },
+
+    get snippets() {
+        return require('./snippets');
     }
 };

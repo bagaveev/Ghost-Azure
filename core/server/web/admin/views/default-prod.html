@@ -8,11 +8,11 @@
     <title>Ghost Admin</title>
 
     
-<meta name="ghost-admin/config/environment" content="%7B%22modulePrefix%22%3A%22ghost-admin%22%2C%22environment%22%3A%22production%22%2C%22rootURL%22%3A%22%2F%22%2C%22locationType%22%3A%22trailing-hash%22%2C%22EmberENV%22%3A%7B%22FEATURES%22%3A%7B%7D%2C%22EXTEND_PROTOTYPES%22%3A%7B%22Date%22%3Afalse%2C%22Array%22%3Atrue%2C%22String%22%3Atrue%2C%22Function%22%3Afalse%7D%2C%22_APPLICATION_TEMPLATE_WRAPPER%22%3Afalse%2C%22_JQUERY_INTEGRATION%22%3Atrue%7D%2C%22APP%22%3A%7B%22version%22%3A%223.5%22%2C%22name%22%3A%22ghost-admin%22%7D%2C%22ember-simple-auth%22%3A%7B%7D%2C%22moment%22%3A%7B%22includeTimezone%22%3A%22all%22%7D%2C%22ember-cli-mirage%22%3A%7B%22usingProxy%22%3Afalse%2C%22useDefaultPassthroughs%22%3Atrue%7D%2C%22exportApplicationGlobal%22%3Afalse%2C%22ember-load%22%3A%7B%22loadingIndicatorClass%22%3A%22ember-load-indicator%22%7D%7D" />
+<meta name="ghost-admin/config/environment" content="%7B%22modulePrefix%22%3A%22ghost-admin%22%2C%22environment%22%3A%22production%22%2C%22rootURL%22%3A%22%2F%22%2C%22locationType%22%3A%22trailing-hash%22%2C%22EmberENV%22%3A%7B%22FEATURES%22%3A%7B%7D%2C%22EXTEND_PROTOTYPES%22%3A%7B%22Date%22%3Afalse%2C%22Array%22%3Atrue%2C%22String%22%3Atrue%2C%22Function%22%3Afalse%7D%2C%22_APPLICATION_TEMPLATE_WRAPPER%22%3Afalse%2C%22_JQUERY_INTEGRATION%22%3Atrue%2C%22_TEMPLATE_ONLY_GLIMMER_COMPONENTS%22%3Atrue%7D%2C%22APP%22%3A%7B%22version%22%3A%224.29%22%2C%22name%22%3A%22ghost-admin%22%7D%2C%22ember-simple-auth%22%3A%7B%7D%2C%22moment%22%3A%7B%22includeTimezone%22%3A%22all%22%7D%2C%22emberKeyboard%22%3A%7B%22disableInputsInitializer%22%3Atrue%7D%2C%22%40sentry%2Fember%22%3A%7B%22disablePerformance%22%3Atrue%2C%22sentry%22%3A%7B%7D%7D%2C%22ember-cli-mirage%22%3A%7B%22usingProxy%22%3Afalse%2C%22useDefaultPassthroughs%22%3Atrue%7D%2C%22exportApplicationGlobal%22%3Afalse%2C%22ember-load%22%3A%7B%22loadingIndicatorClass%22%3A%22ember-load-indicator%22%7D%7D" />
 
     <meta name="HandheldFriendly" content="True" />
     <meta name="MobileOptimized" content="320" />
-    <meta name="viewport" content="user-scalable=no, width=device-width, initial-scale=1, maximum-scale=1, minimal-ui" />
+    <meta name="viewport" content="user-scalable=no, width=device-width, initial-scale=1, maximum-scale=1, minimal-ui, viewport-fit=cover" />
     <meta name="pinterest" content="nopin" />
 
     <meta http-equiv="cleartype" content="on" />
@@ -32,9 +32,16 @@
     <meta name="msapplication-square150x150logo" content="assets/img/medium-7359075af28d69523987ff4c0e2067c5.png" />
     <meta name="msapplication-square310x310logo" content="assets/img/large-bf46e150380a4979a7389b45f5bb479d.png" />
 
+    <!-- variables that we don't want postcss-custom-properties to remove -->
+    <style>
+        :root {
+            --editor-sidebar-width: 0px;
+        }
+    </style>
+
     
-                <link rel="stylesheet" href="assets/vendor.min-e80c50b3effa149734ab96b786349748.css">
-                <link rel="stylesheet" href="assets/ghost.min-1cbce1aeda6ec737d5163ea0ba753666.css" title="light">
+                <link rel="stylesheet" href="assets/vendor.min-987af30228885bce50f05c4723fe6f53.css">
+                <link rel="stylesheet" href="assets/ghost.min-578a1b7e68d1f7ae0003ebe421b7c182.css" title="light">
             
 
     
@@ -52,8 +59,8 @@
 <div id="ember-basic-dropdown-wormhole"></div>
 
 
-                <script src="assets/vendor.min-5962b43ff141d221620b6489791d96ce.js"></script>
-                <script src="assets/ghost.min-8c72a50466899eec9319c299f8092f52.js"></script>
+                <script src="assets/vendor.min-c450359ad46217cd48c00b277ae54a09.js"></script>
+                <script src="assets/ghost.min-ba8ef5d16b8a6f9072564a368154df72.js"></script>
             
 </body>
 </html>

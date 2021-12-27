@@ -1,8 +1,9 @@
+const Promise = require('bluebird');
 const postsMetaSchema = require('../../../schema').tables.posts_meta;
 const ObjectId = require('bson-objectid');
 const _ = require('lodash');
 const models = require('../../../../models');
-const common = require('../../../../lib/common');
+const logging = require('@tryghost/logging');
 
 module.exports.config = {
     transaction: true
@@ -10,7 +11,7 @@ module.exports.config = {
 
 module.exports.up = (options) => {
     const localOptions = _.merge({
-        context: {internal: true},
+        context: { internal: true },
         migrating: true
     }, options);
     const metaAttrs = _.keys(postsMetaSchema);
@@ -29,17 +30,18 @@ module.exports.up = (options) => {
             qb.orWhereNotNull('og_image');
         })
         .fetch(localOptions)
-        .then(({models: posts}) => {
+        .then(({ models: posts }) => {
             if (posts.length > 0) {
-                common.logging.info(`Adding ${posts.length} entries to posts_meta`);
+                logging.info(`Adding ${posts.length} entries to posts_meta`);
                 let postsMetaEntries = _.map(posts, (post) => {
-                    let postsMetaEntry = metaAttrs.reduce(function (obj, entry) {
+                    let postsMetaEntry = metaAttrs.reduce(function(obj, entry) {
                         return Object.assign(obj, {
                             [entry]: post.get(entry) || null
                         });
                     }, {});
                     postsMetaEntry.post_id = post.get('id');
-                    postsMetaEntry.id = ObjectId.generate();
+                    postsMetaEntry.id = ObjectId().toHexString();
+                    postsMetaEntry.email_only = false;
                     return postsMetaEntry;
                 });
 
@@ -48,34 +50,34 @@ module.exports.up = (options) => {
                     return localOptions.transacting('posts_meta').insert(postsMeta);
                 });
             } else {
-                common.logging.info('Skipping populating posts_meta table: found 0 posts with metadata');
+                logging.info('Skipping populating posts_meta table: found 0 posts with metadata');
                 return Promise.resolve();
             }
         });
 };
 
-module.exports.down = function (options) {
+module.exports.down = function(options) {
     let localOptions = _.merge({
-        context: {internal: true},
+        context: { internal: true },
         migrating: true
     }, options);
     const metaAttrs = _.keys(_.omit(postsMetaSchema, ['id', 'post_id']));
 
     return models.PostsMeta
         .findAll(localOptions)
-        .then(({models: postsMeta}) => {
+        .then(({ models: postsMeta }) => {
             if (postsMeta.length > 0) {
-                common.logging.info(`Adding metadata for ${postsMeta.length} posts from posts_meta table`);
-                return Promise.map(postsMeta, (postsMeta) => {
-                    let data = metaAttrs.reduce(function (obj, entry) {
+                logging.info(`Adding metadata for ${postsMeta.length} posts from posts_meta table`);
+                return Promise.map(postsMeta, (meta) => {
+                    let data = metaAttrs.reduce(function(obj, entry) {
                         return Object.assign(obj, {
-                            [entry]: postsMeta.get(entry)
+                            [entry]: meta.get(entry)
                         });
                     }, {});
-                    return localOptions.transacting('posts').where({id: postsMeta.get('post_id')}).update(data);
+                    return localOptions.transacting('posts').where({ id: meta.get('post_id') }).update(data);
                 });
             } else {
-                common.logging.info('Skipping populating meta fields from posts_meta: found 0 entries');
+                logging.info('Skipping populating meta fields from posts_meta: found 0 entries');
                 return Promise.resolve();
             }
         });
