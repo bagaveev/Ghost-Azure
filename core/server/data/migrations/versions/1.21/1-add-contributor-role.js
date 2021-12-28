@@ -1,19 +1,19 @@
-const merge = require('lodash/merge'),
-    utils = require('../../../schema/fixtures/utils'),
-    models = require('../../../../models'),
-    permissions = require('../../../../services/permissions'),
-    logging = require('../../../../lib/common/logging'),
-    _private = {};
+const merge = require('lodash/merge');
+const {fixtureManager} = require('../../../schema/fixtures');
+const models = require('../../../../models');
+const permissions = require('../../../../services/permissions');
+const logging = require('@tryghost/logging');
+const _private = {};
 
 _private.addRole = function addRole(options) {
-    const contributorRole = utils.findModelFixtureEntry('Role', {name: 'Contributor'}),
-        message = 'Adding "Contributor" role to roles table';
+    const contributorRole = fixtureManager.findModelFixtureEntry('Role', {name: 'Contributor'});
+    const message = 'Adding "Contributor" role to roles table';
 
     return models.Role.findOne({name: contributorRole.name}, options)
         .then((role) => {
             if (!role) {
                 logging.info(message);
-                return utils.addFixturesForModel({name: 'Role', entries: [contributorRole]}, options);
+                return fixtureManager.addFixturesForModel({name: 'Role', entries: [contributorRole]}, options);
             }
 
             logging.warn(message);
@@ -22,10 +22,10 @@ _private.addRole = function addRole(options) {
 };
 
 _private.addContributorPermissions = function getPermissions(options) {
-    const relations = utils.findRelationFixture('Role', 'Permission'),
-        message = 'Adding permissions_roles fixtures for the contributor role';
+    const relations = fixtureManager.findRelationFixture('Role', 'Permission');
+    const message = 'Adding permissions_roles fixtures for the contributor role';
 
-    return utils.addFixturesForRelation({
+    return fixtureManager.addFixturesForRelation({
         from: relations.from,
         to: relations.to,
         entries: {
@@ -46,7 +46,7 @@ module.exports.config = {
 };
 
 module.exports.up = function addContributorRole(options) {
-    var localOptions = merge({
+    const localOptions = merge({
         context: {internal: true}
     }, options);
 

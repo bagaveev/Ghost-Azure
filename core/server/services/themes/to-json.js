@@ -1,8 +1,8 @@
-var _ = require('lodash'),
-    themeList = require('./list'),
-    active = require('./active'),
-    packageJSON = require('../../lib/fs/package-json'),
-    settingsCache = require('../settings/cache');
+const _ = require('lodash');
+const themeList = require('./list');
+const bridge = require('../../../bridge');
+const packageJSON = require('@tryghost/package-json');
+const settingsCache = require('../../../shared/settings-cache');
 
 /**
  *
@@ -14,10 +14,11 @@ var _ = require('lodash'),
  *
  * @param {string} [name] - the theme to output
  * @param {object} [checkedTheme] - a theme result from gscan
- * @return {*}
+ * @return {}
  */
 module.exports = function toJSON(name, checkedTheme) {
-    var themeResult, toFilter;
+    let themeResult;
+    let toFilter;
 
     if (!name) {
         toFilter = themeList.getAll();
@@ -39,8 +40,8 @@ module.exports = function toJSON(name, checkedTheme) {
     }
 
     // CASE: if you want a JSON response for a single theme, which is not active.
-    if (_.find(themeResult, {active: true}) && active.get()) {
-        _.find(themeResult, {active: true}).templates = active.get().customTemplates;
+    if (_.find(themeResult, {active: true}) && bridge.getActiveTheme()) {
+        _.find(themeResult, {active: true}).templates = bridge.getActiveTheme().customTemplates;
     }
 
     return {themes: themeResult};

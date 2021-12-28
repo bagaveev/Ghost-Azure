@@ -1,9 +1,11 @@
-const common = require('../../../server/lib/common'),
-    IndexMapGenerator = require('./index-generator'),
-    PagesMapGenerator = require('./page-generator'),
-    PostsMapGenerator = require('./post-generator'),
-    UsersMapGenerator = require('./user-generator'),
-    TagsMapGenerator = require('./tag-generator');
+const IndexMapGenerator = require('./index-generator');
+const PagesMapGenerator = require('./page-generator');
+const PostsMapGenerator = require('./post-generator');
+const UsersMapGenerator = require('./user-generator');
+const TagsMapGenerator = require('./tag-generator');
+
+// This uses events from the routing service and the URL service
+const events = require('../../../server/lib/common/events');
 
 class SiteMapManager {
     constructor(options) {
@@ -13,9 +15,9 @@ class SiteMapManager {
         this.posts = options.posts || this.createPostsGenerator(options);
         this.users = this.authors = options.authors || this.createUsersGenerator(options);
         this.tags = options.tags || this.createTagsGenerator(options);
-        this.index = options.index || this.createIndexGenerator(options);
+        this.index = options.index || this.createIndexGenerator();
 
-        common.events.on('router.created', (router) => {
+        events.on('router.created', (router) => {
             if (router.name === 'StaticRoutesRouter') {
                 this.pages.addUrl(router.getRoute({absolute: true}), {id: router.identifier, staticRoute: true});
             }
@@ -25,15 +27,15 @@ class SiteMapManager {
             }
         });
 
-        common.events.on('url.added', (obj) => {
+        events.on('url.added', (obj) => {
             this[obj.resource.config.type].addUrl(obj.url.absolute, obj.resource.data);
         });
 
-        common.events.on('url.removed', (obj) => {
+        events.on('url.removed', (obj) => {
             this[obj.resource.config.type].removeUrl(obj.url.absolute, obj.resource.data);
         });
 
-        common.events.on('routers.reset', () => {
+        events.on('routers.reset', () => {
             this.pages && this.pages.reset();
             this.posts && this.posts.reset();
             this.users && this.users.reset();

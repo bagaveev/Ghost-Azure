@@ -6,21 +6,20 @@
 //
 // Converts normal HTML into AMP HTML with Amperize module and uses a cache to return it from
 // there if available. The cacheId is a combination of `updated_at` and the `slug`.
-const Promise = require('bluebird'),
-    moment = require('moment'),
-    proxy = require('../../../../helpers/proxy'),
-    SafeString = proxy.SafeString,
-    logging = proxy.logging,
-    i18n = proxy.i18n,
-    errors = proxy.errors,
-    urlUtils = require('../../../../../server/lib/url-utils'),
-    amperizeCache = {};
+const Promise = require('bluebird');
 
-let allowedAMPTags = [],
-    allowedAMPAttributes = {},
-    amperize = null,
-    ampHTML = '',
-    cleanHTML = '';
+const {DateTime, Interval} = require('luxon');
+const errors = require('@tryghost/errors');
+const logging = require('@tryghost/logging');
+
+const {SafeString} = require('../../../../services/rendering');
+
+const amperizeCache = {};
+let allowedAMPTags = [];
+let allowedAMPAttributes = {};
+let amperize = null;
+let ampHTML = '';
+let cleanHTML = '';
 
 allowedAMPTags = ['html', 'body', 'article', 'section', 'nav', 'aside', 'h1', 'h2',
     'h3', 'h4', 'h5', 'h6', 'header', 'footer', 'address', 'p', 'hr',
@@ -36,8 +35,8 @@ allowedAMPTags = ['html', 'body', 'article', 'section', 'nav', 'aside', 'h1', 'h
     'table', 'caption', 'colgroup', 'col', 'tbody', 'thead', 'tfoot', 'tr', 'td',
     'th', 'button', 'noscript', 'acronym', 'center', 'dir', 'hgroup', 'listing',
     'multicol', 'nextid', 'nobr', 'spacer', 'strike', 'tt', 'xmp', 'amp-img',
-    'amp-video', 'amp-ad', 'amp-embed', 'amp-anim', 'amp-iframe', 'amp-pixel',
-    'amp-audio', 'O:P'];
+    'amp-video', 'amp-ad', 'amp-embed', 'amp-anim', 'amp-iframe', 'amp-youtube',
+    'amp-pixel', 'amp-audio', 'O:P'];
 
 allowedAMPAttributes = {
     '*': ['itemid', 'itemprop', 'itemref', 'itemscope', 'itemtype', 'accesskey', 'class', 'dir', 'draggable',
@@ -110,7 +109,8 @@ allowedAMPAttributes = {
     'amp-anim': ['media', 'noloading', 'alt', 'attribution', 'placeholder', 'src', 'srcset', 'width', 'height', 'layout'],
     'amp-audio': ['src', 'width', 'height', 'autoplay', 'loop', 'muted', 'controls'],
     'amp-iframe': ['src', 'srcdoc', 'width', 'height', 'layout', 'frameborder', 'allowfullscreen', 'allowtransparency',
-        'sandbox', 'referrerpolicy']
+        'sandbox', 'referrerpolicy'],
+    'amp-youtube': ['src', 'width', 'height', 'layout', 'frameborder', 'autoplay', 'loop', 'data-videoid', 'data-live-channelid']
 };
 
 function getAmperizeHTML(html, post) {
@@ -118,31 +118,40 @@ function getAmperizeHTML(html, post) {
         return;
     }
 
-    let Amperize = require('amperize'),
-        startedAtMoment = moment();
+    let Amperize = require('amperize');
 
     amperize = amperize || new Amperize();
 
-    // make relative URLs abolute
-    html = urlUtils.htmlRelativeToAbsolute(html, post.url);
+    const startedAtMoment = DateTime.now();
 
-    if (!amperizeCache[post.id] || moment(new Date(amperizeCache[post.id].updated_at)).diff(new Date(post.updated_at)) < 0) {
+    let cacheDateTime;
+    let postDateTime;
+
+    if (amperizeCache[post.id]) {
+        const {updated_at: ampCacheUpdatedAt} = amperizeCache[post.id];
+        const {updated_at: postUpdatedAt} = post;
+
+        cacheDateTime = DateTime.fromJSDate(new Date(ampCacheUpdatedAt));
+        postDateTime = DateTime.fromJSDate(new Date(postUpdatedAt));
+    }
+
+    if (!amperizeCache[post.id] || cacheDateTime.diff(postDateTime).valueOf() < 0) {
         return new Promise((resolve) => {
             amperize.parse(html, (err, res) => {
-                logging.info('amp.parse', post.url, moment().diff(startedAtMoment, 'ms') + 'ms');
+                logging.info('amp.parse', post.url, Interval.fromDateTimes(startedAtMoment, DateTime.now()).length('milliseconds') + 'ms');
 
                 if (err) {
                     if (err.src) {
                         // This is a valid 500 GhostError because it means the amperize parser is unable to handle some Ghost HTML.
-                        logging.error(new errors.GhostError({
-                            message: `AMP HTML couldn't get parsed: ${err.src}`,
+                        logging.error(new errors.InternalServerError({
+                            message: `AMP HTML couldn't be parsed: ${err.src}`,
                             code: 'AMP_PARSER_ERROR',
                             err: err,
                             context: post.url,
-                            help: i18n.t('errors.apps.appWillNotBeLoaded.help')
+                            help: 'Please share this error on GitHub or https://forum.ghost.org'
                         }));
                     } else {
-                        logging.error(new errors.GhostError({err, code: 'AMP_PARSER_ERROR'}));
+                        logging.error(new errors.InternalServerError({err, code: 'AMP_PARSER_ERROR'}));
                     }
 
                     // save it in cache to prevent multiple calls to Amperize until
@@ -162,11 +171,12 @@ function getAmperizeHTML(html, post) {
 }
 
 function ampContent() {
-    let sanitizeHtml = require('sanitize-html'),
-        cheerio = require('cheerio'),
-        amperizeHTML = {
-            amperize: getAmperizeHTML(this.html, this)
-        };
+    let sanitizeHtml = require('sanitize-html');
+    let cheerio = require('cheerio');
+
+    let amperizeHTML = {
+        amperize: getAmperizeHTML(this.html, this)
+    };
 
     return Promise.props(amperizeHTML).then((result) => {
         let $ = null;
@@ -203,3 +213,5 @@ function ampContent() {
 }
 
 module.exports = ampContent;
+
+module.exports.async = true;

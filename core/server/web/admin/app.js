@@ -1,21 +1,15 @@
-const debug = require('ghost-ignition').debug('web:admin:app');
-const express = require('express');
-const serveStatic = require('express').static;
-const config = require('../../config');
-const constants = require('../../lib/constants');
-const urlUtils = require('../../lib/url-utils');
+const debug = require('@tryghost/debug')('web:admin:app');
+const express = require('../../../shared/express');
+const serveStatic = express.static;
+const config = require('../../../shared/config');
+const constants = require('@tryghost/constants');
+const urlUtils = require('../../../shared/url-utils');
 const shared = require('../shared');
-const adminMiddleware = require('./middleware');
-const sentry = require('../../sentry');
+const redirectAdminUrls = require('./middleware/redirect-admin-urls');
 
 module.exports = function setupAdminApp() {
     debug('Admin setup start');
-    const adminApp = express();
-    adminApp.use(sentry.requestHandler);
-
-    // Make sure 'req.secure' and `req.hostname` is valid for proxied requests
-    // (X-Forwarded-Proto header will be checked, if present)
-    adminApp.enable('trust proxy');
+    const adminApp = express('admin');
 
     // Admin assets
     // @TODO ensure this gets a local 404 error handler
@@ -32,29 +26,26 @@ module.exports = function setupAdminApp() {
         });
     }
 
-    // Render error page in case of maintenance
-    adminApp.use(shared.middlewares.maintenance);
-
     // Force SSL if required
     // must happen AFTER asset loading and BEFORE routing
-    adminApp.use(shared.middlewares.urlRedirects.adminRedirect);
+    adminApp.use(shared.middleware.urlRedirects.adminSSLAndHostRedirect);
 
     // Add in all trailing slashes & remove uppercase
     // must happen AFTER asset loading and BEFORE routing
-    adminApp.use(shared.middlewares.prettyUrls);
+    adminApp.use(shared.middleware.prettyUrls);
 
     // Cache headers go last before serving the request
     // Admin is currently set to not be cached at all
-    adminApp.use(shared.middlewares.cacheControl('private'));
+    adminApp.use(shared.middleware.cacheControl('private'));
+
     // Special redirects for the admin (these should have their own cache-control headers)
-    adminApp.use(adminMiddleware);
+    adminApp.use(redirectAdminUrls);
 
     // Finally, routing
     adminApp.get('*', require('./controller'));
 
-    adminApp.use(sentry.errorHandler);
-    adminApp.use(shared.middlewares.errorHandler.pageNotFound);
-    adminApp.use(shared.middlewares.errorHandler.handleHTMLResponse);
+    adminApp.use(shared.middleware.errorHandler.pageNotFound);
+    adminApp.use(shared.middleware.errorHandler.handleHTMLResponse);
 
     debug('Admin setup end');
 

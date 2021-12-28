@@ -1,15 +1,13 @@
-const debug = require('ghost-ignition').debug('web:api:v2:content:app');
+const debug = require('@tryghost/debug')('web:api:v2:content:app');
 const boolParser = require('express-query-boolean');
 const bodyParser = require('body-parser');
-const express = require('express');
+const express = require('../../../../../shared/express');
 const shared = require('../../../shared');
 const routes = require('./routes');
-const sentry = require('../../../../sentry');
 
 module.exports = function setupApiApp() {
     debug('Content API v2 setup start');
-    const apiApp = express();
-    apiApp.use(sentry.requestHandler);
+    const apiApp = express('v2 content');
 
     // API middleware
 
@@ -19,19 +17,15 @@ module.exports = function setupApiApp() {
     // Query parsing
     apiApp.use(boolParser());
 
-    // send 503 json response in case of maintenance
-    apiApp.use(shared.middlewares.maintenance);
-
     // API shouldn't be cached
-    apiApp.use(shared.middlewares.cacheControl('private'));
+    apiApp.use(shared.middleware.cacheControl('private'));
 
     // Routing
     apiApp.use(routes());
 
     // API error handling
-    apiApp.use(sentry.errorHandler);
-    apiApp.use(shared.middlewares.errorHandler.resourceNotFound);
-    apiApp.use(shared.middlewares.errorHandler.handleJSONResponse);
+    apiApp.use(shared.middleware.errorHandler.resourceNotFound);
+    apiApp.use(shared.middleware.errorHandler.handleJSONResponse);
 
     debug('Content API v2 setup end');
 

@@ -1,8 +1,15 @@
 const models = require('../../models');
-const common = require('../../lib/common');
-const urlUtils = require('../../lib/url-utils');
+const tpl = require('@tryghost/tpl');
+const errors = require('@tryghost/errors');
+const getPostServiceInstance = require('../../services/posts/posts-service');
 const ALLOWED_INCLUDES = ['tags', 'authors', 'authors.roles'];
 const UNSAFE_ATTRS = ['status', 'authors', 'visibility'];
+
+const messages = {
+    pageNotFound: 'Page not found.'
+};
+
+const postsService = getPostServiceInstance('canary');
 
 module.exports = {
     docName: 'pages',
@@ -71,8 +78,8 @@ module.exports = {
             return models.Post.findOne(frame.data, frame.options)
                 .then((model) => {
                     if (!model) {
-                        throw new common.errors.NotFoundError({
-                            message: common.i18n.t('errors.api.pages.pageNotFound')
+                        throw new errors.NotFoundError({
+                            message: tpl(messages.pageNotFound)
                         });
                     }
 
@@ -86,6 +93,7 @@ module.exports = {
         headers: {},
         options: [
             'include',
+            'formats',
             'source'
         ],
         validation: {
@@ -121,7 +129,9 @@ module.exports = {
         options: [
             'include',
             'id',
+            'formats',
             'source',
+            'force_rerender',
             // NOTE: only for internal context
             'forUpdate',
             'transacting'
@@ -143,29 +153,12 @@ module.exports = {
             docName: 'posts',
             unsafeAttrs: UNSAFE_ATTRS
         },
-        query(frame) {
-            return models.Post.edit(frame.data.pages[0], frame.options)
-                .then((model) => {
-                    if (
-                        model.get('status') === 'published' && model.wasChanged() ||
-                        model.get('status') === 'draft' && model.previous('status') === 'published'
-                    ) {
-                        this.headers.cacheInvalidate = true;
-                    } else if (
-                        model.get('status') === 'draft' && model.previous('status') !== 'published' ||
-                        model.get('status') === 'scheduled' && model.wasChanged()
-                    ) {
-                        this.headers.cacheInvalidate = {
-                            value: urlUtils.urlFor({
-                                relativeUrl: urlUtils.urlJoin('/p', model.get('uuid'), '/')
-                            })
-                        };
-                    } else {
-                        this.headers.cacheInvalidate = false;
-                    }
+        async query(frame) {
+            const model = await models.Post.edit(frame.data.pages[0], frame.options);
 
-                    return model;
-                });
+            this.headers.cacheInvalidate = postsService.handleCacheInvalidation(model);
+
+            return model;
         }
     },
 
@@ -196,11 +189,11 @@ module.exports = {
             frame.options.require = true;
 
             return models.Post.destroy(frame.options)
-                .return(null)
+                .then(() => null)
                 .catch(models.Post.NotFoundError, () => {
-                    throw new common.errors.NotFoundError({
-                        message: common.i18n.t('errors.api.pages.pageNotFound')
-                    });
+                    return Promise.reject(new errors.NotFoundError({
+                        message: tpl(messages.pageNotFound)
+                    }));
                 });
         }
     }

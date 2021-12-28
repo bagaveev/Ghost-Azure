@@ -1,21 +1,38 @@
 const _ = require('lodash');
-const debug = require('ghost-ignition').debug('services:url:urls');
-const localUtils = require('./utils');
-const common = require('../../lib/common');
+const debug = require('@tryghost/debug')('services:url:urls');
+const urlUtils = require('../../../shared/url-utils');
+const logging = require('@tryghost/logging');
+const errors = require('@tryghost/errors');
+
+// This emits its own url added/removed events
+const events = require('../../lib/common/events');
 
 /**
- * Keeps track of all urls.
- * Each resource has exactly one url.
- *
- * Connector for url generator and resources.
- *
+ * This class keeps track of all urls in the system.
+ * Each resource has exactly one url. Each url is owned by exactly one url generator id.
+ * This is a connector for url generator and resources.
  * Stores relative urls by default.
+ *
+ * We have to have a centralized place where we keep track of all urls, otherwise
+ * we will never know if we generate the same url twice. Furthermore, it's easier
+ * to ask a centralized class instance if you want a url for a resource than
+ * iterating over all url generators and asking for it.
+ * You can easily ask `this.urls[resourceId]`.
  */
 class Urls {
-    constructor() {
-        this.urls = {};
+    /**
+     *
+     * @param {Object} [options]
+     * @param {Object} [options.urls] map of available URLs with their resources
+     */
+    constructor({urls = {}} = {}) {
+        this.urls = urls;
     }
 
+    /**
+     * @description Add a url to the system.
+     * @param {Object} options
+     */
     add(options) {
         const url = options.url;
         const generatorId = options.generatorId;
@@ -24,7 +41,7 @@ class Urls {
         debug('cache', url);
 
         if (this.urls[resource.data.id]) {
-            common.logging.error(new common.errors.InternalServerError({
+            logging.error(new errors.InternalServerError({
                 message: 'This should not happen.',
                 code: 'URLSERVICE_RESOURCE_DUPLICATE'
             }));
@@ -38,22 +55,29 @@ class Urls {
             resource: resource
         };
 
-        common.events.emit('url.added', {
+        // @NOTE: Notify the whole system. Currently used for sitemaps service.
+        events.emit('url.added', {
             url: {
                 relative: url,
-                absolute: localUtils.createUrl(url, true)
+                absolute: urlUtils.createUrl(url, true)
             },
             resource: resource
         });
     }
 
-    // @TODO: add an option to receive an absolute url
+    /**
+     * @description Get url by resource id.
+     * @param {String} id
+     * @returns {Object}
+     */
     getByResourceId(id) {
         return this.urls[id];
     }
 
     /**
-     * Get all by `uid`.
+     * @description Get all urls by generator id.
+     * @param {String} generatorId
+     * @returns {Array}
      */
     getByGeneratorId(generatorId) {
         return _.reduce(Object.keys(this.urls), (toReturn, resourceId) => {
@@ -66,6 +90,8 @@ class Urls {
     }
 
     /**
+     * @description Get by url.
+     *
      * @NOTE:
      * It's is in theory possible that:
      *
@@ -85,6 +111,10 @@ class Urls {
         }, []);
     }
 
+    /**
+     * @description Remove url.
+     * @param id
+     */
     removeResourceId(id) {
         if (!this.urls[id]) {
             return;
@@ -92,7 +122,7 @@ class Urls {
 
         debug('removed', this.urls[id].url, this.urls[id].generatorId);
 
-        common.events.emit('url.removed', {
+        events.emit('url.removed', {
             url: this.urls[id].url,
             resource: this.urls[id].resource
         });
@@ -100,10 +130,16 @@ class Urls {
         delete this.urls[id];
     }
 
+    /**
+     * @description Reset instance.
+     */
     reset() {
         this.urls = {};
     }
 
+    /**
+     * @description Soft reset instance.
+     */
     softReset() {
         this.urls = {};
     }

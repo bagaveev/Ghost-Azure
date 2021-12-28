@@ -1,5 +1,11 @@
-const labs = require('../labs');
-const common = require('../../lib/common');
+const errors = require('@tryghost/errors');
+const tpl = require('@tryghost/tpl');
+
+const messages = {
+    authorizationFailed: 'Authorization failed',
+    missingContentMemberOrIntegration: 'Unable to determine the authenticated member or integration. Check the supplied Content API Key and ensure cookies are being passed through if member auth is failing.',
+    missingAdminUserOrIntegration: 'Unable to determine the authenticated user or integration. Check that cookies are being passed through if using session authentication.'
+};
 
 const authorize = {
     authorizeContentApi(req, res, next) {
@@ -8,12 +14,12 @@ const authorize = {
         if (hasApiKey) {
             return next();
         }
-        if (labs.isSet('members') && hasMember) {
+        if (hasMember) {
             return next();
         }
-        return next(new common.errors.NoPermissionError({
-            message: common.i18n.t('errors.middleware.auth.authorizationFailed'),
-            context: common.i18n.t('errors.middleware.auth.missingContentMemberOrIntegration')
+        return next(new errors.NoPermissionError({
+            message: tpl(messages.authorizationFailed),
+            context: tpl(messages.missingContentMemberOrIntegration)
         }));
     },
 
@@ -24,9 +30,9 @@ const authorize = {
         if (hasUser || hasApiKey) {
             return next();
         } else {
-            return next(new common.errors.NoPermissionError({
-                message: common.i18n.t('errors.middleware.auth.authorizationFailed'),
-                context: common.i18n.t('errors.middleware.auth.missingAdminUserOrIntegration')
+            return next(new errors.NoPermissionError({
+                message: tpl(messages.authorizationFailed),
+                context: tpl(messages.missingAdminUserOrIntegration)
             }));
         }
     }

@@ -1,5 +1,5 @@
 const ParentRouter = require('./ParentRouter');
-const urlUtils = require('../../../server/lib/url-utils');
+const urlUtils = require('../../../shared/url-utils');
 const controllers = require('./controllers');
 
 /**
@@ -30,7 +30,7 @@ class PreviewRouter extends ParentRouter {
     }
 
     /**
-     * @description Prepare context for further middlewares/controllers.
+     * @description Prepare context for further middleware/controllers.
      * @param {Object} req
      * @param {Object} res
      * @param {Function} next

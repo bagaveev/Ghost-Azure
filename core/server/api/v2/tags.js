@@ -1,8 +1,13 @@
 const Promise = require('bluebird');
-const common = require('../../lib/common');
+const tpl = require('@tryghost/tpl');
+const errors = require('@tryghost/errors');
 const models = require('../../models');
 
 const ALLOWED_INCLUDES = ['count.posts'];
+
+const messages = {
+    tagNotFound: 'Tag not found.'
+};
 
 module.exports = {
     docName: 'tags',
@@ -54,8 +59,8 @@ module.exports = {
             return models.Tag.findOne(frame.data, frame.options)
                 .then((model) => {
                     if (!model) {
-                        return Promise.reject(new common.errors.NotFoundError({
-                            message: common.i18n.t('errors.api.tags.tagNotFound')
+                        return Promise.reject(new errors.NotFoundError({
+                            message: tpl(messages.tagNotFound)
                         }));
                     }
 
@@ -106,8 +111,8 @@ module.exports = {
             return models.Tag.edit(frame.data.tags[0], frame.options)
                 .then((model) => {
                     if (!model) {
-                        return Promise.reject(new common.errors.NotFoundError({
-                            message: common.i18n.t('errors.api.tags.tagNotFound')
+                        return Promise.reject(new errors.NotFoundError({
+                            message: tpl(messages.tagNotFound)
                         }));
                     }
 
@@ -142,7 +147,13 @@ module.exports = {
         },
         permissions: true,
         query(frame) {
-            return models.Tag.destroy(frame.options).return(null);
+            return models.Tag.destroy(frame.options)
+                .then(() => null)
+                .catch(models.Tag.NotFoundError, () => {
+                    return Promise.reject(new errors.NotFoundError({
+                        message: tpl(messages.tagNotFound)
+                    }));
+                });
         }
     }
 };

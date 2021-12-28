@@ -1,27 +1,19 @@
-var debug = require('ghost-ignition').debug('themes:loader'),
-    config = require('../../config'),
-    packageJSON = require('../../lib/fs/package-json'),
-    themeList = require('./list'),
-    loadAllThemes,
-    loadOneTheme;
+const debug = require('@tryghost/debug')('themes');
+const packageJSON = require('@tryghost/package-json');
 
-loadAllThemes = function loadAllThemes() {
-    return packageJSON.read
-        .all(config.getContentPath('themes'))
-        .then(function updateThemeList(themes) {
-            debug('loading themes', Object.keys(themes));
+const config = require('../../../shared/config');
+const themeList = require('./list');
 
-            themeList.init(themes);
-        });
+const loadAllThemes = async function loadAllThemes() {
+    const themes = await packageJSON.readPackages(config.getContentPath('themes'));
+    debug('loading themes', Object.keys(themes));
+    themeList.init(themes);
 };
 
-loadOneTheme = function loadOneTheme(themeName) {
-    return packageJSON.read
-        .one(config.getContentPath('themes'), themeName)
-        .then(function (readThemes) {
-            debug('loaded one theme', themeName);
-            return themeList.set(themeName, readThemes[themeName]);
-        });
+const loadOneTheme = async function loadOneTheme(themeName) {
+    const theme = await packageJSON.readPackage(config.getContentPath('themes'), themeName);
+    debug('loaded one theme', themeName);
+    return themeList.set(themeName, theme[themeName]);
 };
 
 module.exports = {
